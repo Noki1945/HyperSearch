@@ -40,6 +40,49 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cmd = args.first().map(String::as_str).unwrap_or("interactive");
     let path = data_path();
     match cmd {
+        "export" => {
+            use hypersearch_engine::storage_analysis::{self, Format, Options};
+            let root = PathBuf::from(option(&args, "--root").ok_or("export requires --root DIR")?);
+            let out =
+                PathBuf::from(option(&args, "--output").ok_or("export requires --output FILE")?);
+            let format = match option(&args, "--format").unwrap_or("markdown") {
+                "json" => Format::Json,
+                "csv" => Format::Csv,
+                "markdown" | "md" => Format::Markdown,
+                _ => return Err("format must be json, csv or markdown".into()),
+            };
+            let mut options = Options::safe(root, format);
+            options.safe = !args.iter().any(|s| s == "--full-paths");
+            options.compact = args.iter().any(|s| s == "--compact");
+            options.neutral_names = args.iter().any(|s| s == "--neutral-names");
+            options.max_depth = option(&args, "--depth")
+                .unwrap_or("18446744073709551615")
+                .parse()?;
+            options.min_bytes = option(&args, "--min-bytes").unwrap_or("0").parse()?;
+            options.exclusions = option(&args, "--exclude")
+                .map(|s| s.split(';').map(PathBuf::from).collect())
+                .unwrap_or_default();
+            println!("{}", storage_analysis::preview(&options));
+            if !args.iter().any(|s| s == "--confirm") {
+                return Err("Review preview and repeat with --confirm to create the local report; nothing was exported".into());
+            }
+            let volumes = storage::load(&path)?;
+            let result = storage_analysis::export(
+                &volumes,
+                &options,
+                &out,
+                &std::sync::atomic::AtomicBool::new(false),
+                |done, total| eprint!("\rMetadata: {done}/{total}"),
+            )?;
+            println!(
+                "\nSaved {}; files={}; logical bytes={}; unavailable={}; omitted={}",
+                out.display(),
+                result.totals.files,
+                result.totals.logical_bytes,
+                result.inaccessible,
+                result.omitted
+            );
+        }
         "index" | "rebuild" => {
             let roots = option(&args, "--root")
                 .map(|s| vec![s.to_string()])

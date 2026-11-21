@@ -2,7 +2,7 @@ use super::view_model::{self, Row};
 use hypersearch_engine::{
     filesystem, indexer, monitor,
     planning::{self, Summary},
-    search::{MemoryMode, Mode, Query, SearchIndex},
+    search::{MemoryMode, Mode, SearchIndex},
     storage,
 };
 use std::{
@@ -11,7 +11,7 @@ use std::{
     ptr::null,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     time::Instant,
@@ -53,7 +53,17 @@ const WDS_UPDATE: usize = 127;
 const WDS_LABEL: usize = 128;
 const THEME: usize = 129;
 const GLASS: usize = 130;
+const EXPORT: usize = 131;
+const AI_REPORT: usize = 132;
+const CANCEL_EXPORT: usize = 133;
+const EXPORT_FORMAT: usize = 134;
+const SAFE_EXPORT: usize = 135;
 enum Task {
+    Export {
+        options: hypersearch_engine::storage_analysis::Options,
+        destination: PathBuf,
+        cancel: Arc<AtomicBool>,
+    },
     Load(MemoryMode),
     Build(String, MemoryMode),
     Analyze(String),
@@ -66,6 +76,8 @@ enum Task {
     },
 }
 enum Event {
+    ExportProgress(u64, u64),
+    ExportDone(Result<(PathBuf, hypersearch_engine::storage_analysis::Summary), String>),
     Plan(Summary, String, bool, String),
     Ready {
         count: usize,
@@ -98,6 +110,7 @@ struct App {
     saved: Option<super::settings::Preference>,
     plan_saved: bool,
     plan_root: String,
+    export_cancel: Option<Arc<AtomicBool>>,
 }
 struct CachedPage {
     text: String,
@@ -122,11 +135,47 @@ fn index_path() -> PathBuf {
         })
 }
 fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, window: usize) {
-    let mut index: Option<SearchIndex> = None;
+    let mut index: Option<Arc<SearchIndex>> = None;
     // One most recent page is enough to make immediate repeated queries allocation-light.
     let mut cache: Option<CachedPage> = None;
     for task in rx {
         let event = match task {
+            Task::Export {
+                options,
+                destination,
+                cancel,
+            } => {
+                if let Some(index) = index.clone() {
+                    let tx = tx.clone();
+                    std::thread::spawn(move || {
+                        let mut last = Instant::now();
+                        let result = hypersearch_engine::storage_analysis::export(
+                            &index.volumes,
+                            &options,
+                            &destination,
+                            &cancel,
+                            |n, total| {
+                                if last.elapsed().as_millis() >= 100 {
+                                    let _ = tx.send(Event::ExportProgress(n, total));
+                                    unsafe {
+                                        PostMessageW(window as HWND, DONE, 0, 0);
+                                    }
+                                    last = Instant::now();
+                                }
+                            },
+                        )
+                        .map(|s| (destination, s))
+                        .map_err(|e| e.to_string());
+                        let _ = tx.send(Event::ExportDone(result));
+                        unsafe {
+                            PostMessageW(window as HWND, DONE, 0, 0);
+                        }
+                    });
+                    continue;
+                } else {
+                    Event::ExportDone(Err("Сначала загрузите поисковый индекс".into()))
+                }
+            }
             Task::Analyze(root) => {
                 index = None;
                 cache = None;
@@ -208,7 +257,7 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                         let cache_detail = table_cache.detail;
                         let count = built.len();
                         let allocation = built.allocation_bytes().div_ceil(1024 * 1024);
-                        index = Some(built);
+                        index = Some(Arc::new(built));
                         Event::Ready {
                             count,
                             root,
@@ -287,7 +336,8 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                     }
                     continue;
                 }
-                let page = if text.trim().is_empty() {
+                let filters = hypersearch_engine::query_tools::Filters::parse(&text);
+                let mut page = if text.trim().is_empty() {
                     let Some(page) = index.children(scope.as_deref().unwrap(), after, 100) else {
                         let _=tx.send(Event::Results{generation:version,rows:vec![],next:None,status:"Этой папки нет в загруженном индексе. Измените область или выполните индексацию.".into()});
                         unsafe {
@@ -297,18 +347,24 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                     };
                     page
                 } else {
-                    index.search_cancellable(
-                        &Query {
-                            text: &text,
-                            mode,
-                            extension: None,
-                            path: scope.as_deref(),
-                        },
+                    hypersearch_engine::query_tools::search(
+                        index,
+                        &filters,
+                        mode,
+                        scope.as_deref(),
                         after,
                         100,
                         || generation.load(Ordering::Relaxed) != version,
                     )
                 };
+                if filters.ranked {
+                    hypersearch_engine::query_tools::rank(
+                        index,
+                        &mut page.ids,
+                        &filters.text,
+                        &std::collections::HashMap::new(),
+                    );
+                }
                 let elapsed = start.elapsed().as_secs_f64() * 1000.;
                 if generation.load(Ordering::Relaxed) != version {
                     continue;
@@ -361,6 +417,91 @@ fn text(hwnd: HWND) -> String {
     }
 }
 impl App {
+    fn export(&mut self, compact: bool) {
+        use hypersearch_engine::storage_analysis::{self, Format, Options};
+        if !self.ready || self.export_cancel.is_some() {
+            return;
+        }
+        let source = self
+            .scope
+            .clone()
+            .unwrap_or_else(|| text(control(self.hwnd, ROOT)));
+        if source.trim() == "*" || source.trim().is_empty() {
+            set(
+                control(self.hwnd, STATUS),
+                "Выберите диск или папку для анализа.",
+            );
+            return;
+        }
+        let selected = unsafe { SendMessageW(control(self.hwnd, EXPORT_FORMAT), 0x147, 0, 0) };
+        let format = if compact {
+            Format::Markdown
+        } else {
+            match selected {
+                1 => Format::Json,
+                2 => Format::Csv,
+                _ => Format::Markdown,
+            }
+        };
+        let mut options = Options::safe(PathBuf::from(source), format);
+        options.compact = compact;
+        options.safe = unsafe { SendMessageW(control(self.hwnd, SAFE_EXPORT), 0xf0, 0, 0) } != 0;
+        let preview = format!(
+            "{}\n\nПродолжить и выбрать файл отчёта?",
+            storage_analysis::preview(&options)
+        );
+        if unsafe {
+            MessageBoxW(
+                self.hwnd,
+                wide(&preview).as_ptr(),
+                wide("Предварительный просмотр экспорта").as_ptr(),
+                MB_YESNO | MB_ICONINFORMATION,
+            )
+        } != IDYES
+        {
+            return;
+        }
+        let extension = match format {
+            Format::Json => "json",
+            Format::Csv => "csv",
+            Format::Markdown => "md",
+        };
+        let mut buffer = vec![0u16; 32768];
+        let default = wide(&format!("HyperSearch-storage-report.{extension}"));
+        buffer[..default.len()].copy_from_slice(&default);
+        let filter = wide("Reports\0*.md;*.json;*.csv\0All files\0*.*\0");
+        let ext = wide(extension);
+        let mut dialog = windows_sys::Win32::UI::Controls::Dialogs::OPENFILENAMEW {
+            lStructSize: std::mem::size_of::<windows_sys::Win32::UI::Controls::Dialogs::OPENFILENAMEW>(
+            ) as u32,
+            hwndOwner: self.hwnd,
+            lpstrFile: buffer.as_mut_ptr(),
+            nMaxFile: buffer.len() as u32,
+            lpstrFilter: filter.as_ptr(),
+            lpstrDefExt: ext.as_ptr(),
+            Flags: windows_sys::Win32::UI::Controls::Dialogs::OFN_PATHMUSTEXIST
+                | windows_sys::Win32::UI::Controls::Dialogs::OFN_NOCHANGEDIR,
+            ..unsafe { std::mem::zeroed() }
+        };
+        if unsafe { windows_sys::Win32::UI::Controls::Dialogs::GetSaveFileNameW(&mut dialog) } == 0
+        {
+            return;
+        }
+        let destination = PathBuf::from(String::from_utf16_lossy(
+            &buffer[..buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len())],
+        ));
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.export_cancel = Some(cancel.clone());
+        let _ = self.tasks.send(Task::Export {
+            options,
+            destination,
+            cancel,
+        });
+        set(
+            control(self.hwnd, STATUS),
+            "Анализ метаданных… Поиск остаётся доступным. Отчёт никуда не отправляется.",
+        );
+    }
     fn refresh_windirstat(&self) {
         if let Some(path) = super::windirstat::installed() {
             set(control(self.hwnd, WDS), "Открыть WinDirStat");
@@ -561,6 +702,28 @@ impl App {
     fn events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             match event {
+                Event::ExportProgress(n, total) => set(
+                    control(self.hwnd, STATUS),
+                    &format!("Анализ метаданных: {n}/{total}. Можно отменить; поиск доступен."),
+                ),
+                Event::ExportDone(result) => {
+                    self.export_cancel = None;
+                    match result {
+                        Ok((path, s)) => set(
+                            control(self.hwnd, STATUS),
+                            &format!(
+                                "Отчёт: {}. Файлов: {}, логических байт: {}, пропущено: {}, ошибок: {}, отменён: {}",
+                                path.display(),
+                                s.totals.files,
+                                s.totals.logical_bytes,
+                                s.omitted,
+                                s.inaccessible,
+                                s.cancelled
+                            ),
+                        ),
+                        Err(e) => set(control(self.hwnd, STATUS), &format!("Ошибка экспорта: {e}")),
+                    }
+                }
                 Event::Plan(summary, source, existing, root) => {
                     self.plan_saved = existing;
                     self.plan_root = root;
@@ -698,7 +861,19 @@ fn child(parent: HWND, class: &str, title: &str, style: u32, id: usize) -> HWND 
 fn layout(hwnd: HWND, setup: bool) {
     unsafe {
         for id in [
-            WDS, WDS_PATH, WDS_SAVE, WDS_SITE, WDS_UPDATE, WDS_LABEL, THEME, GLASS,
+            WDS,
+            WDS_PATH,
+            WDS_SAVE,
+            WDS_SITE,
+            WDS_UPDATE,
+            WDS_LABEL,
+            THEME,
+            GLASS,
+            EXPORT,
+            AI_REPORT,
+            CANCEL_EXPORT,
+            EXPORT_FORMAT,
+            SAFE_EXPORT,
         ] {
             ShowWindow(control(hwnd, id), if setup { SW_SHOW } else { SW_HIDE });
         }
@@ -712,7 +887,7 @@ fn layout(hwnd: HWND, setup: bool) {
             ShowWindow(control(hwnd, id), if setup { SW_SHOW } else { SW_HIDE });
         }
         ShowWindow(control(hwnd, 202), SW_HIDE);
-        let list_top = if setup { 430 } else { 96 };
+        let list_top = if setup { 472 } else { 96 };
         for (id, x, y, cw, ch) in [
             (BACK, 12, 12, 34, 30),
             (UP, 52, 12, 34, 30),
@@ -745,6 +920,11 @@ fn layout(hwnd: HWND, setup: bool) {
             (WDS_SAVE, w - 174, 390, 162, 28),
             (THEME, 780, 182, 180, 28),
             (GLASS, 780, 224, 180, 28),
+            (EXPORT, 204, 432, 160, 28),
+            (AI_REPORT, 374, 432, 160, 28),
+            (CANCEL_EXPORT, 544, 432, 100, 28),
+            (EXPORT_FORMAT, 654, 432, 115, 200),
+            (SAFE_EXPORT, 780, 432, 210, 28),
             (OUTPUT, 204, list_top, w - 216, h - list_top - 100),
             (STATUS, 12, h - 88, w - 160, 80),
             (NEXT, w - 140, h - 56, 128, 32),
@@ -808,6 +988,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let id = w & 0xffff;
                 let event = (w >> 16) & 0xffff;
                 match (id, event) {
+                    (EXPORT, 0) => app.export(false),
+                    (AI_REPORT, 0) => app.export(true),
+                    (CANCEL_EXPORT, 0) => {
+                        if let Some(cancel) = &app.export_cancel {
+                            cancel.store(true, Ordering::Relaxed);
+                            set(control(hwnd, STATUS), "Отмена анализа…");
+                        }
+                    }
                     (THEME, 0) | (GLASS, 0) => {
                         let path = index_path().with_extension("appearance");
                         let mut a = super::appearance::Appearance::load(&path);
@@ -1063,8 +1251,30 @@ pub fn run() {
         );
         child(hwnd, "EDIT", "", WS_TABSTOP | 0x80, WDS_PATH);
         child(hwnd, "BUTTON", "Запомнить путь", WS_TABSTOP, WDS_SAVE);
+        child(hwnd, "BUTTON", "Экспорт структуры", WS_TABSTOP, EXPORT);
+        child(hwnd, "BUTTON", "Отчёт для ИИ", WS_TABSTOP, AI_REPORT);
+        child(hwnd, "BUTTON", "Отмена", WS_TABSTOP, CANCEL_EXPORT);
+        let formats = child(hwnd, "COMBOBOX", "", WS_TABSTOP | 3, EXPORT_FORMAT);
+        for name in ["Markdown", "JSON", "CSV"] {
+            SendMessageW(formats, 0x143, 0, wide(name).as_ptr() as isize);
+        }
+        SendMessageW(formats, 0x14e, 0, 0);
+        let privacy = child(
+            hwnd,
+            "BUTTON",
+            "Скрыть имя пользователя",
+            WS_TABSTOP | 3,
+            SAFE_EXPORT,
+        );
+        SendMessageW(privacy, 0xf1, 1, 0);
         child(hwnd, "STATIC", "Поиск:", 0, 202);
-        child(hwnd, "EDIT", "", WS_TABSTOP | 0x80, QUERY);
+        let query = child(hwnd, "EDIT", "", WS_TABSTOP | 0x80, QUERY);
+        SendMessageW(
+            query,
+            0x1501,
+            0,
+            wide("Поиск · ext:exe type:apps rank:on").as_ptr() as isize,
+        );
         let combo = child(hwnd, "COMBOBOX", "", WS_TABSTOP | 0x3, MODE);
         for name in ["Часть имени", "Начало имени", "Точное имя"] {
             SendMessageW(combo, 0x143, 0, wide(name).as_ptr() as isize);
@@ -1144,6 +1354,7 @@ pub fn run() {
             saved: super::settings::Preference::load(&index_path().with_extension("preferences")),
             plan_saved: false,
             plan_root: "*".into(),
+            export_cancel: None,
         };
         app.refresh_windirstat();
         if let Some(p) = app.saved
@@ -1279,6 +1490,7 @@ mod tests {
                 saved: None,
                 plan_saved: false,
                 plan_root: "*".into(),
+                export_cancel: None,
             };
             app.render_rows();
             assert_eq!(SendMessageW(list, LVM_GETITEMCOUNT, 0, 0), 1);

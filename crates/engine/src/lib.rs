@@ -6,9 +6,11 @@ pub mod monitor;
 #[cfg(windows)]
 pub mod ntfs;
 pub mod planning;
+pub mod query_tools;
 pub mod search;
 pub mod state_files;
 pub mod storage;
+pub mod storage_analysis;
 
 use std::collections::HashMap;
 
