@@ -113,8 +113,42 @@ impl Summary {
                 self.estimate_bytes(m).div_ceil(1024 * 1024)
             ));
         }
+        if let Some((total, available)) = system_memory() {
+            s.push_str(&format!(
+                "\r\nRAM компьютера: {} МБ; доступно сейчас: {} МБ.",
+                total / 1048576,
+                available / 1048576
+            ));
+        }
         s
     }
+}
+pub fn system_memory() -> Option<(u64, u64)> {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        struct Status {
+            length: u32,
+            load: u32,
+            total: u64,
+            available: u64,
+            page_total: u64,
+            page_available: u64,
+            virtual_total: u64,
+            virtual_available: u64,
+            extended: u64,
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GlobalMemoryStatusEx(status: *mut Status) -> i32;
+        }
+        let mut status: Status = unsafe { std::mem::zeroed() };
+        status.length = std::mem::size_of::<Status>() as u32;
+        if unsafe { GlobalMemoryStatusEx(&mut status) } != 0 {
+            return Some((status.total, status.available));
+        }
+    }
+    None
 }
 fn number(r: &mut impl Read) -> io::Result<u64> {
     let mut b = [0; 8];
