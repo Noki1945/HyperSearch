@@ -45,6 +45,12 @@ const UP: usize = 119;
 const OPEN: usize = 120;
 const LOCATION: usize = 121;
 const SETTINGS: usize = 122;
+const WDS: usize = 123;
+const WDS_PATH: usize = 124;
+const WDS_SAVE: usize = 125;
+const WDS_SITE: usize = 126;
+const WDS_UPDATE: usize = 127;
+const WDS_LABEL: usize = 128;
 enum Task {
     Load(MemoryMode),
     Build(String, MemoryMode),
@@ -353,6 +359,22 @@ fn text(hwnd: HWND) -> String {
     }
 }
 impl App {
+    fn refresh_windirstat(&self) {
+        if let Some(path) = super::windirstat::installed() {
+            set(control(self.hwnd, WDS), "Открыть WinDirStat");
+            set(control(self.hwnd, WDS_PATH), &path.to_string_lossy());
+            set(
+                control(self.hwnd, WDS_LABEL),
+                "Хранилище → Анализ диска: WinDirStat найден. Путь сохранён.",
+            );
+        } else {
+            set(control(self.hwnd, WDS), "Скачать WinDirStat");
+            set(
+                control(self.hwnd, WDS_LABEL),
+                "Хранилище → Анализ диска: WinDirStat не найден. Укажите путь или откройте официальный релиз.",
+            );
+        }
+    }
     fn render_rows(&self) {
         unsafe {
             let list = control(self.hwnd, OUTPUT);
@@ -673,6 +695,9 @@ fn child(parent: HWND, class: &str, title: &str, style: u32, id: usize) -> HWND 
 }
 fn layout(hwnd: HWND, setup: bool) {
     unsafe {
+        for id in [WDS, WDS_PATH, WDS_SAVE, WDS_SITE, WDS_UPDATE, WDS_LABEL] {
+            ShowWindow(control(hwnd, id), if setup { SW_SHOW } else { SW_HIDE });
+        }
         let mut r: RECT = std::mem::zeroed();
         GetClientRect(hwnd, &mut r);
         let w = r.right.max(1000);
@@ -683,7 +708,7 @@ fn layout(hwnd: HWND, setup: bool) {
             ShowWindow(control(hwnd, id), if setup { SW_SHOW } else { SW_HIDE });
         }
         ShowWindow(control(hwnd, 202), SW_HIDE);
-        let list_top = if setup { 344 } else { 96 };
+        let list_top = if setup { 430 } else { 96 };
         for (id, x, y, cw, ch) in [
             (BACK, 12, 12, 34, 30),
             (UP, 52, 12, 34, 30),
@@ -708,6 +733,12 @@ fn layout(hwnd: HWND, setup: bool) {
             (ANALYZE, 204, 182, 140, 30),
             (APPLY, 354, 182, 230, 30),
             (PLAN, 204, 224, w - 216, 110),
+            (WDS_LABEL, 204, 330, w - 216, 24),
+            (WDS, 204, 356, 180, 28),
+            (WDS_SITE, 394, 356, 160, 28),
+            (WDS_UPDATE, 564, 356, 190, 28),
+            (WDS_PATH, 204, 390, w - 390, 28),
+            (WDS_SAVE, w - 174, 390, 162, 28),
             (OUTPUT, 204, list_top, w - 216, h - list_top - 100),
             (STATUS, 12, h - 88, w - 160, 80),
             (NEXT, w - 140, h - 56, 128, 32),
@@ -773,7 +804,50 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 match (id, event) {
                     (SETTINGS, 0) => {
                         app.setup = !app.setup;
+                        if app.setup {
+                            app.refresh_windirstat();
+                        }
                         layout(hwnd, app.setup);
+                    }
+                    (WDS, 0) => {
+                        let target = super::windirstat::installed()
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| super::windirstat::RELEASES.into());
+                        unsafe {
+                            ShellExecuteW(
+                                hwnd,
+                                wide("open").as_ptr(),
+                                wide(&target).as_ptr(),
+                                null(),
+                                null(),
+                                SW_SHOWNORMAL,
+                            );
+                        }
+                        app.refresh_windirstat();
+                    }
+                    (WDS_SITE, 0) | (WDS_UPDATE, 0) => {
+                        let url = if id == WDS_SITE {
+                            super::windirstat::WEBSITE
+                        } else {
+                            super::windirstat::RELEASES
+                        };
+                        unsafe {
+                            ShellExecuteW(
+                                hwnd,
+                                wide("open").as_ptr(),
+                                wide(url).as_ptr(),
+                                null(),
+                                null(),
+                                SW_SHOWNORMAL,
+                            );
+                        }
+                    }
+                    (WDS_SAVE, 0) => {
+                        let path = PathBuf::from(text(control(hwnd, WDS_PATH)));
+                        match super::windirstat::remember(&path, &super::windirstat::state_file()) {
+                            Ok(()) => app.refresh_windirstat(),
+                            Err(e) => set(control(hwnd, STATUS), &e.to_string()),
+                        }
                     }
                     (GO, 0) => {
                         let path = text(control(hwnd, ADDRESS));
@@ -940,6 +1014,18 @@ pub fn run() {
         child(hwnd, "BUTTON", "Открыть", WS_TABSTOP, OPEN);
         child(hwnd, "BUTTON", "Расположение", WS_TABSTOP, LOCATION);
         child(hwnd, "BUTTON", "Параметры", WS_TABSTOP, SETTINGS);
+        child(hwnd, "STATIC", "Хранилище → Анализ диска", 0, WDS_LABEL);
+        child(hwnd, "BUTTON", "Скачать WinDirStat", WS_TABSTOP, WDS);
+        child(hwnd, "BUTTON", "Официальный сайт", WS_TABSTOP, WDS_SITE);
+        child(
+            hwnd,
+            "BUTTON",
+            "Проверить обновления",
+            WS_TABSTOP,
+            WDS_UPDATE,
+        );
+        child(hwnd, "EDIT", "", WS_TABSTOP | 0x80, WDS_PATH);
+        child(hwnd, "BUTTON", "Запомнить путь", WS_TABSTOP, WDS_SAVE);
         child(hwnd, "STATIC", "Поиск:", 0, 202);
         child(hwnd, "EDIT", "", WS_TABSTOP | 0x80, QUERY);
         let combo = child(hwnd, "COMBOBOX", "", WS_TABSTOP | 0x3, MODE);
@@ -1022,6 +1108,7 @@ pub fn run() {
             plan_saved: false,
             plan_root: "*".into(),
         };
+        app.refresh_windirstat();
         if let Some(p) = app.saved
             && p.budget_mb.is_none()
             && index_path().is_file()

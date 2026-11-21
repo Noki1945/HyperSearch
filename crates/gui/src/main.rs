@@ -5,6 +5,8 @@ mod app;
 mod settings;
 #[cfg(windows)]
 mod view_model;
+#[cfg(windows)]
+mod windirstat;
 fn main() {
     #[cfg(windows)]
     app::run();
