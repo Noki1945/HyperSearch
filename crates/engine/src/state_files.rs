@@ -58,6 +58,8 @@ pub fn exclude(volumes: &mut [Volume], snapshot: &Path) {
             let name = e.name.to_lowercase();
             !(name == filename
                 || name == format!("{stem}.preferences")
+                || name == format!("{stem}.appearance")
+                || name == "windirstat.path"
                 || (name.starts_with(&format!("{stem}."))
                     && (name.ends_with(".hsc") || name.ends_with(".tmp"))))
         });

@@ -51,6 +51,8 @@ const WDS_SAVE: usize = 125;
 const WDS_SITE: usize = 126;
 const WDS_UPDATE: usize = 127;
 const WDS_LABEL: usize = 128;
+const THEME: usize = 129;
+const GLASS: usize = 130;
 enum Task {
     Load(MemoryMode),
     Build(String, MemoryMode),
@@ -695,7 +697,9 @@ fn child(parent: HWND, class: &str, title: &str, style: u32, id: usize) -> HWND 
 }
 fn layout(hwnd: HWND, setup: bool) {
     unsafe {
-        for id in [WDS, WDS_PATH, WDS_SAVE, WDS_SITE, WDS_UPDATE, WDS_LABEL] {
+        for id in [
+            WDS, WDS_PATH, WDS_SAVE, WDS_SITE, WDS_UPDATE, WDS_LABEL, THEME, GLASS,
+        ] {
             ShowWindow(control(hwnd, id), if setup { SW_SHOW } else { SW_HIDE });
         }
         let mut r: RECT = std::mem::zeroed();
@@ -739,6 +743,8 @@ fn layout(hwnd: HWND, setup: bool) {
             (WDS_UPDATE, 564, 356, 190, 28),
             (WDS_PATH, 204, 390, w - 390, 28),
             (WDS_SAVE, w - 174, 390, 162, 28),
+            (THEME, 780, 182, 180, 28),
+            (GLASS, 780, 224, 180, 28),
             (OUTPUT, 204, list_top, w - 216, h - list_top - 100),
             (STATUS, 12, h - 88, w - 160, 80),
             (NEXT, w - 140, h - 56, 128, 32),
@@ -802,6 +808,34 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let id = w & 0xffff;
                 let event = (w >> 16) & 0xffff;
                 match (id, event) {
+                    (THEME, 0) | (GLASS, 0) => {
+                        let path = index_path().with_extension("appearance");
+                        let mut a = super::appearance::Appearance::load(&path);
+                        if id == THEME {
+                            a.theme = match a.theme {
+                                super::appearance::Theme::System => super::appearance::Theme::Light,
+                                super::appearance::Theme::Light => super::appearance::Theme::Dark,
+                                super::appearance::Theme::Dark => super::appearance::Theme::System,
+                            };
+                        } else {
+                            a.transparency = !a.transparency;
+                        }
+                        match a.save(&path) {
+                            Ok(()) => {
+                                a.apply(hwnd);
+                                set(control(hwnd, THEME), &format!("Тема: {:?}", a.theme));
+                                set(
+                                    control(hwnd, GLASS),
+                                    if a.transparency {
+                                        "Прозрачность: вкл"
+                                    } else {
+                                        "Прозрачность: выкл"
+                                    },
+                                );
+                            }
+                            Err(e) => set(control(hwnd, STATUS), &e.to_string()),
+                        }
+                    }
                     (SETTINGS, 0) => {
                         app.setup = !app.setup;
                         if app.setup {
@@ -976,6 +1010,9 @@ pub fn run() {
         if hwnd.is_null() {
             return;
         }
+        super::appearance::Appearance::load(&index_path().with_extension("appearance")).apply(hwnd);
+        child(hwnd, "BUTTON", "Тема: System", WS_TABSTOP, THEME);
+        child(hwnd, "BUTTON", "Прозрачность", WS_TABSTOP, GLASS);
         child(hwnd, "STATIC", "Каталог:", 0, 201);
         let root = "*".to_string();
         child(hwnd, "EDIT", &root, WS_TABSTOP | 0x80, ROOT);
