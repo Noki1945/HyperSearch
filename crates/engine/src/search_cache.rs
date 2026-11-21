@@ -209,6 +209,13 @@ impl SearchIndex {
         match loaded {
             Ok((names, locations, sorted, short, grams)) => {
                 let lookups = volumes.iter().map(Volume::paths).collect();
+                let mut ids_by_entry: Vec<Vec<Option<u32>>> = volumes
+                    .iter()
+                    .map(|v| vec![None; v.entries.len()])
+                    .collect();
+                for (id, &(v, e)) in locations.iter().enumerate() {
+                    ids_by_entry[v as usize][e as usize] = Some(id as u32);
+                }
                 (
                     Self {
                         volumes,
@@ -218,6 +225,7 @@ impl SearchIndex {
                         short,
                         grams,
                         lookups,
+                        ids_by_entry,
                         memory_mode: mode,
                     },
                     CacheReport {

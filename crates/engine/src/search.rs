@@ -76,7 +76,10 @@ impl Posting {
     fn add(&mut self, id: u32, total: usize) {
         match self {
             Self::Sparse(ids) => {
-                ids.push(id);
+                match ids.binary_search(&id) {
+                    Ok(_) => return,
+                    Err(at) => ids.insert(at, id),
+                }
                 if ids.len() > total.div_ceil(32).max(16) {
                     let mut bits = vec![0; total.div_ceil(64)];
                     for &i in ids.iter() {
@@ -89,8 +92,29 @@ impl Posting {
                 }
             }
             Self::Dense { bits, len } => {
+                bits.resize(bits.len().max(id as usize / 64 + 1), 0);
+                if bits[id as usize / 64] & (1 << (id % 64)) != 0 {
+                    return;
+                }
                 bits[id as usize / 64] |= 1 << (id % 64);
                 *len += 1;
+            }
+        }
+    }
+    fn remove(&mut self, id: u32) {
+        match self {
+            Self::Sparse(ids) => {
+                if let Ok(at) = ids.binary_search(&id) {
+                    ids.remove(at);
+                }
+            }
+            Self::Dense { bits, len } => {
+                if let Some(word) = bits.get_mut(id as usize / 64)
+                    && *word & (1 << (id % 64)) != 0
+                {
+                    *word &= !(1 << (id % 64));
+                    *len -= 1;
+                }
             }
         }
     }
@@ -150,6 +174,7 @@ pub struct SearchIndex {
     short: HashMap<u32, Posting>,
     grams: HashMap<[u8; 3], Posting>,
     lookups: Vec<HashMap<u64, usize>>,
+    ids_by_entry: Vec<Vec<Option<u32>>>,
     pub memory_mode: MemoryMode,
 }
 fn grams(s: &str) -> Vec<[u8; 3]> {
@@ -191,6 +216,10 @@ impl SearchIndex {
             v.entries.shrink_to_fit();
         }
         let mut s = Self {
+            ids_by_entry: volumes
+                .iter()
+                .map(|v| vec![None; v.entries.len()])
+                .collect(),
             lookups: volumes.iter().map(Volume::paths).collect(),
             volumes,
             names: Names {
@@ -236,6 +265,7 @@ impl SearchIndex {
                 }
                 s.names.push(&name);
                 s.locations.push((vi as u32, ei as u32));
+                s.ids_by_entry[vi][ei] = Some(id);
             }
         }
         s.names.blob.shrink_to_fit();
@@ -283,6 +313,9 @@ impl SearchIndex {
     }
     pub fn path(&self, id: u32) -> Option<String> {
         let &(v, e) = self.locations.get(id as usize)?;
+        if self.names[id as usize].is_empty() {
+            return None;
+        }
         let v = v as usize;
         self.volumes[v].path(self.volumes[v].entries[e as usize].id, &self.lookups[v])
     }
@@ -331,7 +364,7 @@ impl SearchIndex {
             }
             page.examined += 1;
             let e = &self.volumes[vi].entries[e as usize];
-            if e.parent == parent && e.id != parent {
+            if e.parent == parent && e.id != parent && !e.name.is_empty() {
                 if page.ids.len() == limit {
                     page.next = page.ids.last().copied();
                     break;
@@ -423,6 +456,9 @@ impl SearchIndex {
             }
             result.examined += 1;
             let n = &self.names[id as usize];
+            if n.is_empty() {
+                continue;
+            }
             let matches = match q.mode {
                 Mode::Exact => n == text,
                 Mode::Prefix => n.starts_with(&text),
@@ -452,5 +488,107 @@ impl SearchIndex {
             result.ids.push(id);
         }
         result
+    }
+    /// Mutates only changed names/postings. Stable IDs survive rename and deletion.
+    pub fn apply_changes(&mut self, volume: usize, changes: Vec<(crate::Entry, u32)>) {
+        for (entry, reason) in changes {
+            if reason & 0x1000 != 0 && reason & 0x2000 == 0 {
+                continue;
+            }
+            let existing = self.lookups[volume].get(&entry.id).copied();
+            let deleted = reason & 0x200 != 0;
+            let ei = match existing {
+                Some(ei) => ei,
+                None if deleted => continue,
+                None => {
+                    let ei = self.volumes[volume].entries.len();
+                    self.lookups[volume].insert(entry.id, ei);
+                    self.volumes[volume].entries.push(entry.clone());
+                    self.ids_by_entry[volume].push(None);
+                    ei
+                }
+            };
+            if entry.id == entry.parent {
+                self.volumes[volume].entries[ei] = entry;
+                continue;
+            }
+            let id = if let Some(id) = self.ids_by_entry[volume][ei] {
+                id
+            } else {
+                let id = self.names.len() as u32;
+                self.names.push("");
+                self.locations.push((volume as u32, ei as u32));
+                self.ids_by_entry[volume][ei] = Some(id);
+                id
+            };
+            let old = self.names[id as usize].to_string();
+            let new = if deleted {
+                String::new()
+            } else {
+                entry.name.to_lowercase()
+            };
+            if old != new {
+                if let Ok(at) = self.sorted.binary_search_by(|&other| {
+                    self.names[other as usize]
+                        .cmp(old.as_str())
+                        .then(other.cmp(&id))
+                }) {
+                    self.sorted.remove(at);
+                }
+                if self.memory_mode == MemoryMode::Fast {
+                    for key in old
+                        .as_bytes()
+                        .windows(1)
+                        .chain(old.as_bytes().windows(2))
+                        .map(short_key)
+                    {
+                        if let Some(p) = self.short.get_mut(&key) {
+                            p.remove(id);
+                        }
+                    }
+                    for key in new
+                        .as_bytes()
+                        .windows(1)
+                        .chain(new.as_bytes().windows(2))
+                        .map(short_key)
+                    {
+                        self.short
+                            .entry(key)
+                            .or_insert_with(|| Posting::Sparse(Vec::new()))
+                            .add(id, self.names.len());
+                    }
+                }
+                if self.memory_mode != MemoryMode::Economy {
+                    for key in grams(&old) {
+                        if let Some(p) = self.grams.get_mut(&key) {
+                            p.remove(id);
+                        }
+                    }
+                    for key in grams(&new) {
+                        self.grams
+                            .entry(key)
+                            .or_insert_with(|| Posting::Sparse(Vec::new()))
+                            .add(id, self.names.len());
+                    }
+                }
+                let start = self.names.blob.len();
+                self.names.blob.push_str(&new);
+                self.names.spans[id as usize] = (start, start + new.len());
+                if !new.is_empty() {
+                    let at = self.sorted.partition_point(|&other| {
+                        self.names[other as usize]
+                            .cmp(new.as_str())
+                            .then(other.cmp(&id))
+                            .is_lt()
+                    });
+                    self.sorted.insert(at, id);
+                }
+            }
+            self.volumes[volume].entries[ei] = entry;
+            if deleted {
+                self.volumes[volume].entries[ei].name.clear();
+                self.lookups[volume].remove(&self.volumes[volume].entries[ei].id);
+            }
+        }
     }
 }

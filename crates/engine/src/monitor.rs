@@ -64,3 +64,43 @@ pub fn catch_up(volume: &mut Volume) -> io::Result<()> {
         Err(io::Error::other("USN requires Windows"))
     }
 }
+
+/// One bounded journal read per volume. Uses the index's persistent FRN lookup.
+pub fn refresh(index: &mut crate::search::SearchIndex) -> io::Result<usize> {
+    #[cfg(windows)]
+    {
+        let mut count = 0;
+        for vi in 0..index.volumes.len() {
+            let volume = &index.volumes[vi];
+            if volume.journal == 0 {
+                continue;
+            }
+            let handle = crate::ntfs::VolumeHandle::open(&volume.root)?;
+            let (journal, first, target) = handle.journal()?;
+            if journal != volume.journal || volume.next_usn < first || volume.next_usn > target {
+                return Err(io::Error::other("journal gap: rebuild required"));
+            }
+            if target == volume.next_usn {
+                continue;
+            }
+            let (next, changes) = handle.changes(journal, volume.next_usn)?;
+            if next <= volume.next_usn {
+                return Err(io::Error::other("journal did not advance"));
+            }
+            if changes.iter().any(|(_, reason)| reason & 0x10000 != 0) {
+                return Err(io::Error::other(
+                    "hard-link change: rebuild with directory walk required",
+                ));
+            }
+            count += changes.len();
+            index.apply_changes(vi, changes);
+            index.volumes[vi].next_usn = next;
+        }
+        Ok(count)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = index;
+        Err(io::Error::other("USN requires Windows"))
+    }
+}
