@@ -1,0 +1,12 @@
+﻿prediction_bytes=463045065; mode=Balanced
+load_ms=409.809
+entries=1281006; build_ms=1292.868; owned_allocation_model_bytes=343741548; process=Some(Metrics { working_set_bytes: 389050368, private_bytes: 391712768, cpu_seconds: 3.328125 })
+Exact excel.exe: p50/p95/p99_ms=0.0006/0.0007/0.0054; candidates=1; target200ms=true
+Substring excel.exe: p50/p95/p99_ms=0.0134/0.0143/0.0332; candidates=1204; target200ms=true
+Substring report: p50/p95/p99_ms=0.0260/0.0302/0.0975; candidates=156; target200ms=true
+Substring report 2026: p50/p95/p99_ms=0.0913/0.1030/0.1493; candidates=5067; target200ms=true
+Substring zz: p50/p95/p99_ms=3.5720/4.1067/4.5213; candidates=287128; target200ms=true
+Substring q: p50/p95/p99_ms=0.0625/0.0851/0.1628; candidates=6198; target200ms=true
+Substring hs-missing-qzx: p50/p95/p99_ms=0.0003/0.0004/0.0005; candidates=1; target200ms=true
+Prefix f: p50/p95/p99_ms=0.0382/0.0391/0.1132; candidates=2029; target200ms=true
+Substring отчёт: p50/p95/p99_ms=0.0315/0.0346/0.1108; candidates=100; target200ms=true

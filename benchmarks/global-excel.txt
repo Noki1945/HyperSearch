@@ -1,0 +1,12 @@
+scope=all accessible drive-letter roots; roots=C:\
+volume=C:\; records=1281007; source=NTFS USN; scan_ms=2967.036; warnings=2
+save_ms=188.847
+indexed_objects=1281006; tables_ms=2752.397; total_prepare_ms=5908.293
+query=excel.exe; mode=Exact; results=1; first_with_paths_ms=0.006900; examined=1
+result=C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE; exists=true
+warm_with_paths_p50_ms=0.000400; p95_ms=0.000600; p99_ms=0.000800
+query=excel.exe; mode=Substring; results=1; first_with_paths_ms=0.200500; examined=1204
+result=C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE; exists=true
+warm_with_paths_p50_ms=0.014300; p95_ms=0.030400; p99_ms=0.040600
+saved_index=C:\Users\<USER>\AppData\Local\HyperSearch\index.hsi
+overall=PASS

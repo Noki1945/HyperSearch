@@ -1,0 +1,7 @@
+[package]
+name = "hypersearch"
+version = "0.1.0-beta.1"
+edition = "2024"
+
+[dependencies]
+hypersearch-engine = { path = "../engine" }

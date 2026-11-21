@@ -1,0 +1,10 @@
+fixture=C:\Users\<USER>\AppData\Local\HyperSearch\validation\fixture-20261122; files=20000; generation_ms=5851.436
+walk_ms=569.892; warnings=0
+search_tables_ms=19.131
+query=hsneedle; count=100; first_query_with_paths_ms=0.0840
+warm_with_paths_p50_ms=0.0191; p95_ms=0.0282; p99_ms=0.0373
+query=отчёт; count=100; first_query_with_paths_ms=0.0343
+warm_with_paths_p50_ms=0.0155; p95_ms=0.0295; p99_ms=0.0358
+query=hsabsent; count=0; first_query_with_paths_ms=0.0005
+warm_with_paths_p50_ms=0.0001; p95_ms=0.0002; p99_ms=0.0002
+overall=PASS

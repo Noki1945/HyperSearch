@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-22",
+  "fixture": "fixture-20261122",
+  "files": 20000,
+  "method": "Enter key dispatch through Computer Use followed by first screenshot/accessibility observation; times include automation overhead and are upper bounds, not engine latency. One observation per query; no cold-cache guarantee. Canonical AQS System.FileName substring filter.",
+  "runs": [
+    {
+      "query": "hsneedle",
+      "expected": 100,
+      "observed": 100,
+      "submit_to_observation_ms": 430.00930000000517
+    },
+    {
+      "query": "отчёт",
+      "expected": 100,
+      "observed": 100,
+      "submit_to_observation_ms": 418.9256999999925
+    },
+    {
+      "query": "hsabsent",
+      "expected": 0,
+      "observed": 0,
+      "submit_to_observation_ms": 321.4011000000173
+    }
+  ]
+}

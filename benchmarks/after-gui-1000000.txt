@@ -1,0 +1,27 @@
+﻿entries=1000000; build_ms=1708.994
+process_after_build=Some(Metrics { working_set_bytes: 708587520, private_bytes: 746336256, cpu_seconds: 1.703125 })
+save_ms=129.271; disk_bytes=60750105
+load_os_cache_ms=466.786
+Exact Financial_Report_2026_00000000.xlsx: first_query_ms=0.0156
+  indexed p50/p95/p99_ms=(0.0025, 0.0038, 0.0047); linear=(2.605, 4.7646, 5.5743); examined=1
+Prefix financial: first_query_ms=0.0126
+  indexed p50/p95/p99_ms=(0.001, 0.0015999999999999999, 0.0017000000000000001); linear=(0.0007999999999999999, 0.0014, 0.0015); examined=101
+Substring report: first_query_ms=0.0049
+  indexed p50/p95/p99_ms=(0.0012, 0.0017000000000000001, 0.0018); linear=(0.002, 0.002, 0.0021); examined=101
+Substring report 2026: first_query_ms=0.0023
+  indexed p50/p95/p99_ms=(0.0018, 0.0031999999999999997, 0.0046); linear=(0.0022, 0.0043, 0.0046); examined=101
+Substring отпуск: first_query_ms=0.0050
+  indexed p50/p95/p99_ms=(0.0014, 0.0024, 0.0040999999999999995); linear=(0.0043, 0.0081, 0.0083); examined=101
+Substring 00009999: first_query_ms=0.3002
+  indexed p50/p95/p99_ms=(0.3083, 0.46440000000000003, 0.7047000000000001); linear=(36.1892, 40.4677, 43.1254); examined=3700
+Substring absent-token: first_query_ms=0.0033
+  indexed p50/p95/p99_ms=(0.005, 0.0059, 0.1027); linear=(45.818400000000004, 49.9009, 52.446); examined=0
+Substring zz: first_query_ms=0.0031
+  indexed p50/p95/p99_ms=(0.0040999999999999995, 0.0051, 0.0076); linear=(27.011, 35.510600000000004, 40.2846); examined=0
+Substring q: first_query_ms=0.0021
+  indexed p50/p95/p99_ms=(0.0040999999999999995, 0.005, 0.0296); linear=(26.1086, 30.7185, 32.6215); examined=0
+Substring fi: first_query_ms=0.0143
+  indexed p50/p95/p99_ms=(0.0012, 0.002, 0.0028); linear=(0.0017000000000000001, 0.003, 0.0031); examined=101
+Prefix f: first_query_ms=0.0039
+  indexed p50/p95/p99_ms=(0.0015999999999999999, 0.0018, 0.0018); linear=(0.0011, 0.0012, 0.0013); examined=201
+batch_rename_ms=3.923; process_end=Some(Metrics { working_set_bytes: 714121216, private_bytes: 754724864, cpu_seconds: 9.171875 })

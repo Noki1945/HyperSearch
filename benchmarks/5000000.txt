@@ -1,0 +1,19 @@
+entries=5000000; build_ms=4908.346
+process_after_build=Some(Metrics { working_set_bytes: 2519003136, private_bytes: 2959343616, cpu_seconds: 5.125 })
+save_ms=808.492; disk_bytes=303750105
+load_os_cache_ms=3367.655
+Exact Financial_Report_2026_00000000.xlsx: first_query_ms=0.0140
+  indexed p50/p95/p99_ms=(0.0078, 0.010499999999999999, 0.0217); linear=(31.262900000000002, 34.2314, 35.8971); examined=1
+Prefix financial: first_query_ms=0.0164
+  indexed p50/p95/p99_ms=(0.0009, 0.0015, 0.002); linear=(0.0007999999999999999, 0.0014, 0.0014); examined=101
+Substring report: first_query_ms=0.0060
+  indexed p50/p95/p99_ms=(0.0012, 0.002, 0.0203); linear=(0.0017000000000000001, 0.0029000000000000002, 0.0031); examined=101
+Substring report 2026: first_query_ms=0.0034
+  indexed p50/p95/p99_ms=(0.0018, 0.0018, 0.0023); linear=(0.0021, 0.0022, 0.0022); examined=101
+Substring отпуск: first_query_ms=0.0073
+  indexed p50/p95/p99_ms=(0.0015, 0.0026, 0.032100000000000004); linear=(0.0043, 0.007700000000000001, 0.0099); examined=101
+Substring 00009999: first_query_ms=2.0080
+  indexed p50/p95/p99_ms=(2.0597, 2.3944, 3.221); linear=(174.8013, 214.1554, 235.9918); examined=18500
+Substring absent-token: first_query_ms=0.0034
+  indexed p50/p95/p99_ms=(0.0055, 0.0062, 0.0066); linear=(220.3558, 246.3618, 263.6966); examined=0
+batch_rename_ms=3.041; process_end=Some(Metrics { working_set_bytes: 2514522112, private_bytes: 2953535488, cpu_seconds: 53.078125 })

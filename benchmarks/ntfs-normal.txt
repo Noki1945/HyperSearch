@@ -1,0 +1,1 @@
+overall=FAIL; error=Отказано в доступе. (os error 5)

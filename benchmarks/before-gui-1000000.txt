@@ -1,0 +1,27 @@
+﻿entries=1000000; build_ms=855.372
+process_after_build=Some(Metrics { working_set_bytes: 512569344, private_bytes: 528424960, cpu_seconds: 0.890625 })
+save_ms=125.415; disk_bytes=60750105
+load_os_cache_ms=467.454
+Exact Financial_Report_2026_00000000.xlsx: first_query_ms=0.0178
+  indexed p50/p95/p99_ms=(0.0031, 0.005, 0.0066); linear=(2.0743, 4.8018, 5.4317); examined=1
+Prefix financial: first_query_ms=0.0203
+  indexed p50/p95/p99_ms=(0.0007999999999999999, 0.0012, 0.0019); linear=(0.0007, 0.0007999999999999999, 0.0007999999999999999); examined=101
+Substring report: first_query_ms=0.0042
+  indexed p50/p95/p99_ms=(0.0012, 0.0029000000000000002, 0.0206); linear=(0.0017000000000000001, 0.0029000000000000002, 0.003); examined=101
+Substring report 2026: first_query_ms=0.0048
+  indexed p50/p95/p99_ms=(0.0029000000000000002, 0.0031999999999999997, 0.007); linear=(0.0036, 0.004, 0.0049); examined=101
+Substring отпуск: first_query_ms=0.0048
+  indexed p50/p95/p99_ms=(0.0014, 0.0022, 0.0023); linear=(0.0042, 0.007500000000000001, 0.0076); examined=101
+Substring 00009999: first_query_ms=0.2995
+  indexed p50/p95/p99_ms=(0.3341, 0.508, 0.5234000000000001); linear=(36.0827, 42.113200000000006, 53.6918); examined=3700
+Substring absent-token: first_query_ms=0.0031
+  indexed p50/p95/p99_ms=(0.0056, 0.0063, 0.0067); linear=(47.6008, 54.208, 62.1353); examined=0
+Substring zz: first_query_ms=37.0694
+  indexed p50/p95/p99_ms=(33.3886, 36.170899999999996, 39.041); linear=(28.6695, 33.5048, 42.1233); examined=1000000
+Substring q: first_query_ms=32.5756
+  indexed p50/p95/p99_ms=(31.1721, 33.8834, 39.8505); linear=(25.8388, 27.7621, 28.8255); examined=1000000
+Substring fi: first_query_ms=0.0264
+  indexed p50/p95/p99_ms=(0.0028, 0.0044, 0.0049); linear=(0.0017000000000000001, 0.0027, 0.0028); examined=401
+Prefix f: first_query_ms=11.2536
+  indexed p50/p95/p99_ms=(10.354099999999999, 11.7433, 13.3948); linear=(0.0043, 0.0083, 0.0216); examined=101
+batch_rename_ms=3.343; process_end=Some(Metrics { working_set_bytes: 521838592, private_bytes: 537370624, cpu_seconds: 12.328125 })
