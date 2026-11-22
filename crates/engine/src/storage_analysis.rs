@@ -108,6 +108,15 @@ fn inside(path: &Path, root: &Path) -> bool {
     let r = normalized(root);
     p == r || p.starts_with(&(r + "\\"))
 }
+fn canonical_prefix(path: &Path) -> Option<PathBuf> {
+    // An exclusion must also work for stale, already-deleted indexed objects.
+    for parent in path.ancestors() {
+        if let Ok(base) = parent.canonicalize() {
+            return Some(base.join(path.strip_prefix(parent).ok()?));
+        }
+    }
+    None
+}
 fn redact(path: &Path, o: &Options) -> String {
     if !o.safe {
         return path.to_string_lossy().into_owned();
@@ -299,7 +308,7 @@ pub fn export(
         } else {
             root.join(path)
         };
-        if let Ok(canonical) = path.canonicalize() {
+        if let Some(canonical) = canonical_prefix(&path) {
             exclusions.push(canonical);
         }
         exclusions.push(path);
