@@ -1,0 +1,3 @@
+export_before_metrics=Some(Metrics { peak_working_set_bytes: 268857344, peak_commit_bytes: 268013568, working_set_bytes: 125849600, private_bytes: 124682240, cpu_seconds: 0.484375 })
+export_elapsed_ms=101346.315; export_after_metrics=Some(Metrics { peak_working_set_bytes: 268857344, peak_commit_bytes: 268013568, working_set_bytes: 142979072, private_bytes: 143360000, cpu_seconds: 87.421875 }); report_parts=1
+files=1105052; folders=169367; inaccessible=12724; reparse_skipped=166; cancelled=False; compact=true; private_report_not_published=true

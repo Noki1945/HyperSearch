@@ -1,4 +1,16 @@
-# Beta 0.1 — test report
+# Beta 0.2 — test report
+
+2026-11-22, Windows x64, Ryzen 7 9800X3D, 32 GB RAM. The 0.1 report is retained below as historical evidence.
+
+0.2 has 32 automated tests: 6 parser/query-tool/indexing-scope unit cases, 10 original engine integration cases, 2 incremental update cases, 3 cache cases, 2 storage-export cases and 9 GUI/model/settings/discovery/icon/geometry/download cases. New coverage includes incremental/fresh-index equivalence in all modes, stable IDs, ranking/frequency, recent-history persistence, quoted filters, folder/extension semantics, native virtual Unicode buffers, actual hotkey conflicts/restoration, system type icons, remembered downloads, split reports without lost rows, long paths, hard links and mid-scan cancellation.
+
+The hidden real-application diagnostic checks worker/message results, window ownership, virtual/multiple-selection styles, all seven settings pages, theme application and metadata-error handling without showing windows or capturing the screen. Its measured log is benchmarks/0.2-gui-smoke.txt. This is request-to-model timing, not display latency.
+
+The separate elevated live USN test passed create, rename, move, parent rename and delete after a single initial build (benchmarks/0.2-usn-admin.txt). It changed only its temporary fixture, then removed that fixture. The baseline snapshot used for the three memory-mode audits was not replaced by this test.
+
+Physical multi-monitor/mixed-DPI appearance, GPU traces, screen-reader behavior and visual fidelity remain environment/ beta validation limits. No screenshot-based claims, installer execution, network export or universal Explorer speedup are made. See UI_PERFORMANCE.md and STORAGE_ANALYSIS.md for implementation boundaries and reproduction.
+
+# Beta 0.1 — historical test report
 
 Date: 2026-11-22. Local platform: Windows x64, AMD Ryzen 7 9800X3D, 32 GB RAM, Rust 1.100.0 GNU. All numbers are machine-specific observations, not guaranteed service levels.
 

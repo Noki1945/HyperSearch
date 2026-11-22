@@ -1,0 +1,8 @@
+initial_entries=1288983; initial_scan_and_build_ms=8960.405
+create=PASS; incremental_ms=29.247
+rename=PASS; incremental_ms=0.569
+move=PASS; incremental_ms=0.310
+parent_rename=PASS; incremental_ms=0.483
+delete=PASS; incremental_ms=0.376
+user_files_modified=false; fixture_cleaned=true; full_rebuilds_after_initial=0
+overall=PASS; error=None

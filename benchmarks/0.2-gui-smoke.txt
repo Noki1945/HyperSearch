@@ -1,0 +1,7 @@
+application_ready_ms=1357.475; entries=1281006
+gui_process_metrics=Some(Metrics { peak_working_set_bytes: 488103936, peak_commit_bytes: 481972224, working_set_bytes: 488103936, private_bytes: 481910784, cpu_seconds: 1.265625 })
+query_message_to_model_ms=2.239; rows=4
+native_controls=passed; themes_applied=3; dpi=96; monitors=1; windows_visible=false; screen_capture=false
+asynchronous unavailable-metadata response handled; starting_idle_ms=10000
+hidden_idle_wall_seconds=9.991; process_cpu_seconds=0.000000; one_core_equivalent_percent=0.0000
+success=true; hidden idle completed; total_ms=11622.749

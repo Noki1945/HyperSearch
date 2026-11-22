@@ -3,13 +3,13 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$version = '0.1.0-beta.1'
+$version = '0.2.0-beta.1'
 $output = Join-Path $root 'release'
 $stage = Join-Path $output ('package-' + $version)
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item -LiteralPath (Join-Path $BinDir 'hypersearch-gui.exe') -Destination (Join-Path $stage 'HyperSearch.exe')
 Copy-Item -LiteralPath (Join-Path $BinDir 'hypersearch.exe') -Destination (Join-Path $stage 'hypersearch-cli.exe')
-foreach ($name in @('BETA-0.1.md','BETA_TEST_REPORT.md','CACHE.md','MEMORY_MODES.md','VALIDATION.md','PERFORMANCE.md','CHANGELOG.md')) {
+foreach ($name in @('BETA-0.2.md','BETA_TEST_REPORT.md','README.md','UI_PERFORMANCE.md','STORAGE_ANALYSIS.md','CACHE.md','MEMORY_MODES.md','VALIDATION.md','PERFORMANCE.md','CHANGELOG.md','THIRD_PARTY_NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $root $name) -Destination (Join-Path $stage $name)
 }
 $revision = git -C $root rev-parse HEAD

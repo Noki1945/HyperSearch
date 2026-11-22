@@ -1,0 +1,1 @@
+version=2.9.3; portable_archive_sha256=c980fee14389eb3a160415b0a07361900f3630f232501884863fec40f369a4a4; external_exit_code=0; unicode_fixture_export=True; portable_ini_isolation=true; installer_executed=false; target_scope=synthetic_fixture; private_output_not_published=true

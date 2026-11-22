@@ -1,0 +1,2 @@
+version=release/v2.9.3; sha256=96c4c4beb63c7c5ad6b1a206f96560d7a9a2b6063f3cd175a82f392977a9af5d; cache_hit=false; installer_executed=false
+tampered_cache_recovered=true; installer_executed=false

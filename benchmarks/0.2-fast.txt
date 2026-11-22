@@ -1,0 +1,12 @@
+mode=fast; entries=1281006; snapshot_load_ms=398.877; engine_ready_ms=914.023; cache_hit=true; allocation_bytes=452519352; metrics=Some(Metrics { peak_working_set_bytes: 480100352, peak_commit_bytes: 480432128, working_set_bytes: 480100352, private_bytes: 480415744, cpu_seconds: 0.90625 })
+Exact excel.exe: p50/p95/p99_with_paths_ms=(0.0006, 0.0012, 0.024300000000000002); rows=100
+Prefix excel: p50/p95/p99_with_paths_ms=(0.0335, 0.0357, 0.0722); rows=10000
+Substring excel.exe: p50/p95/p99_with_paths_ms=(0.0149, 0.0156, 0.1158); rows=400
+Substring отчёт: p50/p95/p99_with_paths_ms=(0.0306, 0.0339, 0.07440000000000001); rows=10000
+Substring report 2026: p50/p95/p99_with_paths_ms=(0.09770000000000001, 0.1132, 0.4502); rows=3200
+Substring q: p50/p95/p99_with_paths_ms=(0.0291, 0.0315, 0.07880000000000001); rows=10000
+Substring zz: p50/p95/p99_with_paths_ms=(0.0344, 0.0359, 0.079); rows=10000
+Substring hypersearch-absent-zzzzzz: p50/p95/p99_with_paths_ms=(0.0007999999999999999, 0.0007999999999999999, 0.0219); rows=0
+filter_ms=4.159; page_ranking_ms=0.069; rows=100
+single_rename_p50/p95/p99_ms=(0.1817, 4.8056, 4.8056) (memory only; user files unchanged)
+end_metrics=Some(Metrics { peak_working_set_bytes: 519270400, peak_commit_bytes: 520196096, working_set_bytes: 482209792, private_bytes: 483741696, cpu_seconds: 0.953125 }); freshness=not_verified

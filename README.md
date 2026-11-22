@@ -1,6 +1,8 @@
-# HyperSearch beta 0.1
+# HyperSearch 0.2 beta
 
-[Скачать Windows x64 beta](https://github.com/Noki1945/HyperSearch/releases/tag/v0.1.0-beta.1)
+[Скачать Windows x64 0.2 beta](https://github.com/Noki1945/HyperSearch/releases/tag/v0.2.0-beta.1)
+
+Нативные стеклянные поверхности Windows, отдельные параметры и Spotlight, виртуальные виды файлов, фильтры, ранжирование, метаданные, фоновое обновление USN и локальные отчёты по хранилищу. Инструкция: [BETA-0.2.md](BETA-0.2.md), проверки интерфейса: [UI_PERFORMANCE.md](UI_PERFORMANCE.md), экспорт и приватность: [STORAGE_ANALYSIS.md](STORAGE_ANALYSIS.md). Предыдущая [beta 0.1](https://github.com/Noki1945/HyperSearch/releases/tag/v0.1.0-beta.1) остаётся доступна.
 
 Упрощённый нативный интерфейс Проводника: боковая панель дисков, адресная строка, переходы назад/вверх, поиск в текущей папке или по всему индексу и таблица «Имя / Расположение / Тип». Двойной щелчок открывает папку внутри программы или файл в системном приложении. Инструкция и ограничения: [BETA-0.1.md](BETA-0.1.md).
 
@@ -8,7 +10,7 @@
 
 Проверки и статистика beta: [BETA_TEST_REPORT.md](BETA_TEST_REPORT.md), [CHANGELOG.md](CHANGELOG.md).
 
-Поисковый движок Windows x64: Rust stable, edition 2024, библиотека, CLI и простой нативный GUI. У движка нет сторонних Rust-зависимостей; GUI использует `windows-sys` для стандартных Windows-контролов. Пользовательские файлы доступны только для чтения.
+Поисковый движок Windows x64: Rust stable, edition 2024, библиотека, CLI и нативный GUI. GUI использует `windows-sys`; модуль отчётов использует `serde`/`serde_json`. Поиск и анализ не изменяют пользовательские файлы; отчёты создаются только по запросу.
 
 ## Сборка
 
