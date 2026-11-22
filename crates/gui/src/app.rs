@@ -746,6 +746,7 @@ fn show_palette(hwnd: HWND) {
 }
 fn register_shortcut(hwnd: HWND, value: &str) -> Result<(), String> {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
+    let value = value.trim();
     if value.trim().is_empty() || value.eq_ignore_ascii_case("off") {
         unsafe {
             UnregisterHotKey(hwnd, 1);
@@ -762,9 +763,18 @@ fn register_shortcut(hwnd: HWND, value: &str) -> Result<(), String> {
             "alt" => modifiers |= MOD_ALT,
             "shift" => modifiers |= MOD_SHIFT,
             "win" => modifiers |= MOD_WIN,
-            "space" => key = Some(0x20),
+            "space" => {
+                if key.replace(0x20).is_some() {
+                    return Err("Укажите одну основную клавишу".into());
+                }
+            }
             s if s.len() == 1 && s.as_bytes()[0].is_ascii_alphanumeric() => {
-                key = Some(s.as_bytes()[0].to_ascii_uppercase() as u32)
+                if key
+                    .replace(s.as_bytes()[0].to_ascii_uppercase() as u32)
+                    .is_some()
+                {
+                    return Err("Укажите одну основную клавишу".into());
+                }
             }
             _ => return Err("Формат: Ctrl+Alt+Space, Ctrl+Shift+F или off".into()),
         }
@@ -3521,6 +3531,7 @@ mod tests {
                 .expect("no free hotkey among test candidates");
             assert!(register_shortcut(second, &free).is_err());
             assert!(register_shortcut(parent, "invalid shortcut").is_err());
+            assert!(register_shortcut(parent, "Ctrl+Alt+A+B").is_err());
             assert!(
                 register_shortcut(second, &free).is_err(),
                 "invalid input must preserve previous registration"
