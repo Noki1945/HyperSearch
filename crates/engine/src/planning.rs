@@ -61,7 +61,7 @@ impl Summary {
         let base = self.entries * 48
             + self.original_alloc
             + self.lower_bytes
-            + self.searchable * 28
+            + self.searchable * 36
             + self.lookup_bytes;
         let bitmap = self.searchable.div_ceil(64) * 8;
         let posting = |counts: &HashMap<_, usize>| {

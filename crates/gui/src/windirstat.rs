@@ -100,13 +100,89 @@ pub fn installed() -> Option<PathBuf> {
         }
     }
     if let Some(p) = std::env::var_os("LOCALAPPDATA") {
-        candidates.push(PathBuf::from(p).join("Microsoft/WinGet/Links/windirstat.exe"));
+        let p = PathBuf::from(p);
+        candidates.push(p.join("Microsoft/WinGet/Links/windirstat.exe"));
+        candidates.push(p.join("HyperSearch/Tools/WinDirStat/windirstat.exe"));
+    }
+    if let Some(p) = std::env::var_os("USERPROFILE") {
+        let downloads = PathBuf::from(p).join("Downloads");
+        candidates.push(downloads.join("windirstat.exe"));
+        candidates.push(downloads.join("WinDirStat/windirstat.exe"));
+        // Bounded discovery of extracted official portable packages; never a recursive scan.
+        if let Ok(entries) = std::fs::read_dir(&downloads) {
+            for entry in entries.take(256).flatten() {
+                if entry
+                    .file_name()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .starts_with("windirstat")
+                {
+                    candidates.push(entry.path().join("windirstat.exe"));
+                    candidates.push(entry.path().join("x64/windirstat.exe"));
+                }
+            }
+        }
     }
     discover(&state_file(), candidates)
+}
+/// Remembers packages opened through settings. Never executes an unverified installer.
+pub fn downloaded() -> Option<PathBuf> {
+    let state = state_file().with_file_name("windirstat.download");
+    let downloads = PathBuf::from(std::env::var_os("USERPROFILE")?).join("Downloads");
+    downloaded_from(&state, &downloads)
+}
+fn downloaded_from(state: &Path, downloads: &Path) -> Option<PathBuf> {
+    if let Ok(saved) = std::fs::read_to_string(state) {
+        let path = PathBuf::from(saved.trim());
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    let mut packages: Vec<_> = std::fs::read_dir(downloads)
+        .ok()?
+        .take(256)
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name().is_some_and(|name| {
+                name.to_string_lossy()
+                    .to_lowercase()
+                    .starts_with("windirstat")
+            }) && path.extension().is_some_and(|ext| {
+                matches!(
+                    ext.to_string_lossy().to_lowercase().as_str(),
+                    "zip" | "msi" | "exe"
+                )
+            }) && path.is_file()
+        })
+        .collect();
+    packages.sort_by_key(|path| {
+        std::cmp::Reverse(path.metadata().ok().and_then(|m| m.modified().ok()))
+    });
+    let path = packages.into_iter().next()?;
+    let _ = std::fs::write(state, path.to_string_lossy().as_bytes());
+    Some(path)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn downloaded_package_is_remembered_without_execution() {
+        let dir = std::env::temp_dir().join(format!("hs-wds-package-{}", std::process::id()));
+        std::fs::create_dir(&dir).unwrap();
+        let state = dir.join("download.path");
+        let zip = dir.join("WinDirStat-x64.zip");
+        std::fs::write(&zip, b"test fixture, not an executable").unwrap();
+        assert_eq!(downloaded_from(&state, &dir), Some(zip.clone()));
+        assert_eq!(
+            downloaded_from(&state, &dir.join("missing")),
+            Some(zip.clone())
+        );
+        std::fs::remove_file(&zip).unwrap();
+        assert!(downloaded_from(&state, &dir).is_none());
+        std::fs::remove_file(state).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
     #[test]
     fn remembers_existing_and_recovers_missing() {
         let dir = std::env::temp_dir().join(format!("hs-wds-{}", std::process::id()));

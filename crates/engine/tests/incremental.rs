@@ -10,6 +10,43 @@ fn entry(id: u64, parent: u64, name: &str, directory: bool) -> Entry {
         directory,
     }
 }
+
+#[test]
+fn dense_postings_match_fresh_index_after_many_updates() {
+    for mode in [MemoryMode::Economy, MemoryMode::Balanced, MemoryMode::Fast] {
+        let mut volume = hypersearch_engine::benchmark::synthetic(1200);
+        let mut index = SearchIndex::with_mode(vec![volume.clone()], mode);
+        for step in 1..100 {
+            let id = 1 + ((step * 97) % 1200) as u64;
+            let reason = if step % 3 == 0 { 0x200 } else { 0x2000 };
+            let change = entry(id, 0, &format!("Фото_Excel_{step}.exe"), false);
+            index.apply_changes(0, vec![(change.clone(), reason)]);
+            hypersearch_engine::monitor::apply(&mut volume, vec![(change, reason)]);
+        }
+        let reference = SearchIndex::with_mode(vec![volume], mode);
+        for mode in [Mode::Exact, Mode::Prefix, Mode::Substring] {
+            for text in ["Фото", "ex", "f", "Фото_Excel_99.exe", "report", "zz", ""] {
+                let query = Query {
+                    text,
+                    mode,
+                    extension: None,
+                    path: None,
+                };
+                let paths = |index: &SearchIndex| {
+                    let mut paths: Vec<_> = index
+                        .search(&query, None, 10000)
+                        .ids
+                        .into_iter()
+                        .filter_map(|id| index.path(id))
+                        .collect();
+                    paths.sort();
+                    paths
+                };
+                assert_eq!(paths(&index), paths(&reference), "{mode:?} {text}");
+            }
+        }
+    }
+}
 #[test]
 fn incremental_stable_ids_all_memory_modes() {
     for mode in [MemoryMode::Economy, MemoryMode::Balanced, MemoryMode::Fast] {

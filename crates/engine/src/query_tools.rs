@@ -1,6 +1,42 @@
 //! Optional presentation filters and ranking. Core ID cursors remain unchanged.
 use crate::search::{Mode, Page, Query, SearchIndex};
 use std::collections::HashMap;
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub struct OpenHistory(pub HashMap<String, u32>, pub Vec<String>);
+impl OpenHistory {
+    pub fn load(path: &std::path::Path) -> Self {
+        std::fs::read(path)
+            .ok()
+            .filter(|bytes| bytes.len() < 2 * 1024 * 1024)
+            .and_then(|bytes| {
+                serde_json::from_slice::<Self>(&bytes).ok().or_else(|| {
+                    serde_json::from_slice::<HashMap<String, u32>>(&bytes)
+                        .ok()
+                        .map(|map| Self(map, vec![]))
+                })
+            })
+            .filter(|entries| entries.0.len() <= 1000 && entries.1.len() <= 1000)
+            .unwrap_or_default()
+    }
+    pub fn record(&mut self, path: String, destination: &std::path::Path) -> std::io::Result<()> {
+        self.1.retain(|p| *p != path);
+        self.1.insert(0, path.clone());
+        self.1.truncate(1000);
+        let count = self.0.entry(path).or_default();
+        *count = count.saturating_add(1);
+        if self.0.len() > 1000 {
+            let least = self
+                .0
+                .iter()
+                .min_by_key(|(_, count)| *count)
+                .map(|(path, _)| path.clone());
+            if let Some(path) = least {
+                self.0.remove(&path);
+            }
+        }
+        std::fs::write(destination, serde_json::to_vec(self)?)
+    }
+}
 
 #[derive(Default, Debug, PartialEq)]
 pub struct Filters {
@@ -95,6 +131,9 @@ pub fn search(
         next: None,
         examined: 0,
     };
+    if limit == 0 {
+        return result;
+    }
     let mut cursor = after;
     loop {
         let page = index.search_cancellable(

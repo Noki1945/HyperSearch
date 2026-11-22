@@ -4,6 +4,8 @@ mod app;
 #[cfg(windows)]
 mod appearance;
 #[cfg(windows)]
+mod icons;
+#[cfg(windows)]
 mod settings;
 #[cfg(windows)]
 mod view_model;

@@ -16,6 +16,7 @@ use std::{
     },
     time::Instant,
 };
+use windows_sys::Win32::UI::HiDpi::*;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
 use windows_sys::Win32::UI::{Controls::*, Shell::ShellExecuteW};
 use windows_sys::Win32::{
@@ -76,7 +77,17 @@ const ANIMATIONS: usize = 150;
 const EXTENSION: usize = 151;
 const CATEGORY: usize = 152;
 const RANK: usize = 153;
+const WDS_SCOPE: usize = 154;
+const EXPORT_ROOT: usize = 155;
+const EXPORT_DEPTH: usize = 156;
+const EXPORT_MIN: usize = 157;
+const EXPORT_NEUTRAL: usize = 158;
+const EXPORT_EXCLUDE: usize = 159;
+const EXPORT_COMPACT: usize = 160;
+const EXPORT_HELP: usize = 161;
 enum Task {
+    Icons(Vec<String>),
+    Opened(String),
     Refresh,
     Metadata(String),
     Export {
@@ -96,6 +107,7 @@ enum Task {
     },
 }
 enum Event {
+    Icons(super::icons::Icons),
     Freshness(String),
     Metadata(String, String),
     ExportProgress(u64, u64),
@@ -134,6 +146,7 @@ struct App {
     plan_saved: bool,
     plan_root: String,
     export_cancel: Option<Arc<AtomicBool>>,
+    icons: std::collections::HashMap<String, i32>,
 }
 struct CachedPage {
     text: String,
@@ -145,6 +158,35 @@ struct CachedPage {
 }
 thread_local! {static APP:RefCell<Option<App>>=const{RefCell::new(None)};}
 thread_local! {static LOOK:std::cell::Cell<super::appearance::Appearance>=std::cell::Cell::new(super::appearance::Appearance::default());}
+thread_local! {static FONTS:RefCell<std::collections::HashMap<u32,isize>>=RefCell::new(std::collections::HashMap::new());}
+fn ui_font(dpi: u32) -> usize {
+    FONTS.with(|fonts| {
+        *fonts.borrow_mut().entry(dpi).or_insert_with(|| unsafe {
+            CreateFontW(
+                -(15 * dpi as i32 / 96),
+                0,
+                0,
+                0,
+                400,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET as u32,
+                0,
+                0,
+                CLEARTYPE_QUALITY as u32,
+                0,
+                wide("Segoe UI").as_ptr(),
+            ) as isize
+        }) as usize
+    })
+}
+unsafe extern "system" fn update_font(hwnd: HWND, dpi: isize) -> i32 {
+    unsafe {
+        SendMessageW(hwnd, WM_SETFONT, ui_font(dpi as u32), 1);
+    }
+    1
+}
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
@@ -159,6 +201,24 @@ fn index_path() -> PathBuf {
         })
 }
 fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, window: usize) {
+    let (icons_tx, icons_rx) = mpsc::channel::<Vec<String>>();
+    let icons_events = tx.clone();
+    std::thread::spawn(move || {
+        for mut keys in &icons_rx {
+            while let Ok(newer) = icons_rx.try_recv() {
+                keys = newer;
+            }
+            let icons = super::icons::load(keys);
+            if icons_events.send(Event::Icons(icons)).is_err() {
+                break;
+            }
+            unsafe {
+                PostMessageW(window as HWND, DONE, 0, 0);
+            }
+        }
+    });
+    let mut history =
+        hypersearch_engine::query_tools::OpenHistory::load(&index_path().with_extension("opens"));
     let (metadata_tx, metadata_rx) = mpsc::channel::<String>();
     let metadata_events = tx.clone();
     std::thread::spawn(move || {
@@ -191,6 +251,15 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
     let mut cache: Option<CachedPage> = None;
     for task in rx {
         let event = match task {
+            Task::Icons(keys) => {
+                let _ = icons_tx.send(keys);
+                continue;
+            }
+            Task::Opened(path) => {
+                let _ = history.record(path, &index_path().with_extension("opens"));
+                cache = None;
+                continue;
+            }
             Task::Refresh => {
                 if !monitor_enabled {
                     continue;
@@ -393,6 +462,33 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                     }
                     continue;
                 }
+                if text.trim().is_empty() && scope.as_deref() == Some("hypersearch:recent") {
+                    let rows = history
+                        .1
+                        .iter()
+                        .take(100)
+                        .map(|path| Row {
+                            name: PathBuf::from(path)
+                                .file_name()
+                                .map(|s| s.to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                            path: path.clone(),
+                            kind: "Недавний файл".into(),
+                            directory: false,
+                        })
+                        .collect();
+                    let _ = tx.send(Event::Results {
+                        generation: version,
+                        rows,
+                        next: None,
+                        status: "Недавно открытые в HyperSearch файлы; последнее открытие сверху"
+                            .into(),
+                    });
+                    unsafe {
+                        PostMessageW(window as HWND, DONE, 0, 0);
+                    }
+                    continue;
+                }
                 if text.trim().is_empty() && scope.is_none() {
                     let rows = index
                         .volumes
@@ -441,7 +537,7 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                         index,
                         &mut page.ids,
                         &filters.text,
-                        &std::collections::HashMap::new(),
+                        &history.0,
                     );
                 }
                 let elapsed = start.elapsed().as_secs_f64() * 1000.;
@@ -525,12 +621,17 @@ fn copy_text(hwnd: HWND, value: &str) -> Result<(), String> {
 fn show_palette(hwnd: HWND) {
     unsafe {
         let p = palette(hwnd);
-        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let active = GetForegroundWindow();
+        let monitor = MonitorFromWindow(
+            if active.is_null() { hwnd } else { active },
+            MONITOR_DEFAULTTONEAREST,
+        );
         let mut info: MONITORINFO = std::mem::zeroed();
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
         GetMonitorInfoW(monitor, &mut info);
-        let width = 760.min(info.rcWork.right - info.rcWork.left);
-        let height = 430.min(info.rcWork.bottom - info.rcWork.top);
+        let dpi = GetDpiForWindow(p).max(96) as i32;
+        let width = (760 * dpi / 96).min(info.rcWork.right - info.rcWork.left);
+        let height = (430 * dpi / 96).min(info.rcWork.bottom - info.rcWork.top);
         SetWindowPos(
             p,
             HWND_TOP,
@@ -538,9 +639,16 @@ fn show_palette(hwnd: HWND) {
             info.rcWork.top + (info.rcWork.bottom - info.rcWork.top - height) / 3,
             width,
             height,
-            SWP_SHOWWINDOW,
+            SWP_NOACTIVATE,
         );
+        let animated = LOOK.with(|look| look.get().animations);
+        if animated && IsWindowVisible(p) == 0 {
+            AnimateWindow(p, 90, AW_BLEND);
+        } else {
+            ShowWindow(p, SW_SHOW);
+        }
         SetForegroundWindow(p);
+        set(GetDlgItem(p, QUERY as i32), &text(control(hwnd, QUERY)));
         SetFocus(GetDlgItem(p, QUERY as i32));
     }
 }
@@ -595,10 +703,14 @@ impl App {
         if !self.ready || self.export_cancel.is_some() {
             return;
         }
-        let source = self
+        let mut source = self
             .scope
             .clone()
             .unwrap_or_else(|| text(control(self.hwnd, ROOT)));
+        let chosen = text(control(self.hwnd, EXPORT_ROOT));
+        if !chosen.trim().is_empty() {
+            source = chosen;
+        }
         if source.trim() == "*" || source.trim().is_empty() {
             set(
                 control(self.hwnd, STATUS),
@@ -617,8 +729,30 @@ impl App {
             }
         };
         let mut options = Options::safe(PathBuf::from(source), format);
-        options.compact = compact;
+        options.compact =
+            compact || unsafe { SendMessageW(control(self.hwnd, EXPORT_COMPACT), 0xf0, 0, 0) } == 1;
         options.safe = unsafe { SendMessageW(control(self.hwnd, SAFE_EXPORT), 0xf0, 0, 0) } != 0;
+        options.neutral_names =
+            unsafe { SendMessageW(control(self.hwnd, EXPORT_NEUTRAL), 0xf0, 0, 0) } == 1;
+        let parsed = text(control(self.hwnd, EXPORT_DEPTH))
+            .parse::<usize>()
+            .ok()
+            .zip(text(control(self.hwnd, EXPORT_MIN)).parse::<u64>().ok());
+        let Some((depth, min)) = parsed else {
+            set(
+                control(self.hwnd, STATUS),
+                "Глубина и минимальный размер должны быть неотрицательными целыми числами.",
+            );
+            return;
+        };
+        options.max_depth = depth;
+        options.min_bytes = min;
+        options.exclusions = text(control(self.hwnd, EXPORT_EXCLUDE))
+            .split(';')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .collect();
         let preview = format!(
             "{}\n\nПродолжить и выбрать файл отчёта?",
             storage_analysis::preview(&options)
@@ -683,6 +817,23 @@ impl App {
                 control(self.hwnd, WDS_LABEL),
                 "Хранилище → Анализ диска: WinDirStat найден. Путь сохранён.",
             );
+        } else if let Some(path) = super::windirstat::downloaded() {
+            set(
+                control(self.hwnd, WDS),
+                if path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                {
+                    "Открыть архив"
+                } else {
+                    "Папка установщика"
+                },
+            );
+            set(
+                control(self.hwnd, WDS_LABEL),
+                "Загрузка WinDirStat найдена и запомнена. Подлинность не проверена; установщик автоматически не запускается.",
+            );
+            set(control(self.hwnd, WDS_PATH), &path.to_string_lossy());
         } else {
             set(control(self.hwnd, WDS), "Скачать WinDirStat");
             set(
@@ -806,6 +957,8 @@ impl App {
                     control(self.hwnd, STATUS),
                     "Не удалось открыть файл. Возможно, снимок индекса устарел.",
                 );
+            } else {
+                let _ = self.tasks.send(Task::Opened(row.path));
             }
         }
     }
@@ -921,6 +1074,30 @@ impl App {
     fn events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             match event {
+                Event::Icons(icons) => {
+                    self.icons = icons.indices;
+                    for list in [control(self.hwnd, OUTPUT), unsafe {
+                        GetDlgItem(palette(self.hwnd), OUTPUT as i32)
+                    }] {
+                        if !list.is_null() {
+                            unsafe {
+                                SendMessageW(
+                                    list,
+                                    LVM_SETIMAGELIST,
+                                    LVSIL_SMALL as usize,
+                                    icons.small as isize,
+                                );
+                                SendMessageW(
+                                    list,
+                                    LVM_SETIMAGELIST,
+                                    LVSIL_NORMAL as usize,
+                                    icons.large as isize,
+                                );
+                                InvalidateRect(list, null(), 0);
+                            }
+                        }
+                    }
+                }
                 Event::Freshness(status) => {
                     self.status = status.clone();
                     set(control(self.hwnd, STATUS), &status);
@@ -1052,6 +1229,15 @@ impl App {
                         continue;
                     }
                     self.rows.extend(rows);
+                    let keys: Vec<_> = self
+                        .rows
+                        .iter()
+                        .map(|r| super::icons::key(&r.name, r.directory))
+                        .collect::<std::collections::HashSet<_>>()
+                        .into_iter()
+                        .take(256)
+                        .collect();
+                    let _ = self.tasks.send(Task::Icons(keys));
                     self.next = next;
                     self.render_rows();
                     set(
@@ -1082,7 +1268,7 @@ fn child(parent: HWND, class: &str, title: &str, style: u32, id: usize) -> HWND 
             GetModuleHandleW(null()),
             null(),
         );
-        SendMessageW(h, WM_SETFONT, GetStockObject(DEFAULT_GUI_FONT) as usize, 1);
+        SendMessageW(h, WM_SETFONT, ui_font(GetDpiForWindow(parent).max(96)), 1);
         h
     }
 }
@@ -1111,8 +1297,9 @@ fn layout(hwnd: HWND, setup: bool) {
         }
         let mut r: RECT = std::mem::zeroed();
         GetClientRect(hwnd, &mut r);
-        let w = r.right.max(1000);
-        let h = r.bottom.max(580);
+        let dpi = GetDpiForWindow(hwnd).max(96) as i32;
+        let w = (r.right * 96 / dpi).max(1000);
+        let h = (r.bottom * 96 / dpi).max(580);
         for id in [
             201, ROOT, BUILD, ALL, 203, PROFILE, 204, BUDGET, ANALYZE, APPLY, PLAN,
         ] {
@@ -1183,13 +1370,24 @@ fn layout(hwnd: HWND, setup: bool) {
             (STATUS, 12, h - 88, w - 160, 80),
             (NEXT, w - 140, h - 56, 128, 32),
         ] {
-            MoveWindow(control(hwnd, id), x, y, cw, ch, 1);
+            let parent = GetParent(control(hwnd, id));
+            let local_dpi = GetDpiForWindow(parent).max(96) as i32;
+            MoveWindow(
+                control(hwnd, id),
+                x * local_dpi / 96,
+                y * local_dpi / 96,
+                cw * local_dpi / 96,
+                ch * local_dpi / 96,
+                1,
+            );
         }
         let section = SendMessageW(control(hwnd, SECTIONS), 0x188, 0, 0);
         if !settings.is_null() {
             let mut r: RECT = std::mem::zeroed();
             GetClientRect(settings, &mut r);
-            let sw = r.right.max(1000);
+            let sdpi = GetDpiForWindow(settings).max(96) as i32;
+            let s = |v: i32| v * sdpi / 96;
+            let sw = (r.right * 96 / sdpi).max(1000);
             for (id, x, y, width, height) in [
                 (THEME, 204, 54, 260, 30),
                 (GLASS, 204, 100, 260, 30),
@@ -1221,7 +1419,24 @@ fn layout(hwnd: HWND, setup: bool) {
                 (HOTKEY, 204, 94, 280, 30),
                 (HOTKEY_SAVE, 494, 94, 240, 30),
             ] {
-                MoveWindow(control(hwnd, id), x, y, width, height, 1);
+                MoveWindow(control(hwnd, id), s(x), s(y), s(width), s(height), 1);
+            }
+            for (id, x, y, width, height) in [
+                (EXPORT_HELP, 204, 172, sw - 230, 44),
+                (EXPORT_ROOT, 204, 222, 420, 200),
+                (EXPORT_FORMAT, 640, 222, 140, 200),
+                (EXPORT_DEPTH, 204, 264, 72, 30),
+                (EXPORT_MIN, 290, 264, 130, 30),
+                (EXPORT_NEUTRAL, 434, 264, 270, 30),
+                (SAFE_EXPORT, 204, 306, 280, 30),
+                (EXPORT_COMPACT, 504, 306, 230, 30),
+                (EXPORT_EXCLUDE, 204, 350, sw - 230, 30),
+                (EXPORT, 204, 396, 160, 30),
+                (AI_REPORT, 374, 396, 160, 30),
+                (CANCEL_EXPORT, 544, 396, 100, 30),
+                (COPY_PROMPT, 204, 444, 260, 30),
+            ] {
+                MoveWindow(control(hwnd, id), s(x), s(y), s(width), s(height), 1);
             }
         }
         for (page, ids) in [
@@ -1248,6 +1463,13 @@ fn layout(hwnd: HWND, setup: bool) {
                     EXPORT_FORMAT,
                     SAFE_EXPORT,
                     COPY_PROMPT,
+                    EXPORT_ROOT,
+                    EXPORT_DEPTH,
+                    EXPORT_MIN,
+                    EXPORT_NEUTRAL,
+                    EXPORT_EXCLUDE,
+                    EXPORT_COMPACT,
+                    EXPORT_HELP,
                 ],
             ),
             (4, vec![HOTKEY_LABEL, HOTKEY, HOTKEY_SAVE]),
@@ -1268,6 +1490,26 @@ fn layout(hwnd: HWND, setup: bool) {
     }
 }
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if msg == WM_DPICHANGED && l != 0 {
+        let rect = unsafe { &*(l as *const RECT) };
+        unsafe {
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+            EnumChildWindows(hwnd, Some(update_font), (w & 0xffff) as isize);
+            let owner = GetWindow(hwnd, GW_OWNER);
+            if !owner.is_null() {
+                SendMessageW(owner, WM_SIZE, 0, 0);
+            }
+        }
+        return 0;
+    }
     let owner = unsafe { GetWindow(hwnd, GW_OWNER) };
     if !owner.is_null() {
         let is_palette = palette(owner) == hwnd;
@@ -1293,20 +1535,22 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let mut r: RECT = unsafe { std::mem::zeroed() };
                 unsafe {
                     GetClientRect(hwnd, &mut r);
+                    let dpi = GetDpiForWindow(hwnd).max(96) as i32;
+                    let s = |v: i32| v * dpi / 96;
                     MoveWindow(
                         GetDlgItem(hwnd, QUERY as i32),
-                        20,
-                        18,
-                        (r.right - 40).max(100),
-                        38,
+                        s(20),
+                        s(18),
+                        (r.right - s(40)).max(100),
+                        s(38),
                         1,
                     );
                     MoveWindow(
                         GetDlgItem(hwnd, OUTPUT as i32),
-                        20,
-                        72,
-                        (r.right - 40).max(100),
-                        (r.bottom - 92).max(60),
+                        s(20),
+                        s(72),
+                        (r.right - s(40)).max(100),
+                        (r.bottom - s(92)).max(60),
                         1,
                     );
                 }
@@ -1351,6 +1595,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     (LOCATION, "Открыть расположение"),
                     (COPY, "Копировать путь"),
                     (PIN, "Закрепить текущую папку"),
+                    (WDS_SCOPE, "Анализировать в WinDirStat"),
                 ] {
                     AppendMenuW(menu, MF_STRING, id, wide(label).as_ptr());
                 }
@@ -1381,6 +1626,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             };
             unsafe {
                 SetTextColor(w as HDC, fg);
+                if msg == WM_CTLCOLORSTATIC
+                    && !GetPropW(hwnd, wide("HyperSearch.Glass").as_ptr()).is_null()
+                {
+                    SetBkMode(w as HDC, TRANSPARENT as i32);
+                    return GetStockObject(NULL_BRUSH) as isize;
+                }
                 SetBkColor(w as HDC, bg);
                 let brush = GetStockObject(DC_BRUSH);
                 SetDCBrushColor(w as HDC, bg);
@@ -1389,7 +1640,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         }
         WM_ERASEBKGND => {
             let look = LOOK.with(|look| look.get());
-            let bg = if look.dark() { 0x00282020 } else { 0x00faf7f4 };
+            let bg = if unsafe { !GetPropW(hwnd, wide("HyperSearch.Glass").as_ptr()).is_null() } {
+                0
+            } else if look.dark() {
+                0x00282020
+            } else {
+                0x00faf7f4
+            };
             unsafe {
                 let mut rect: RECT = std::mem::zeroed();
                 GetClientRect(hwnd, &mut rect);
@@ -1403,7 +1660,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 if let Ok(mut a) = a.try_borrow_mut()
                     && let Some(a) = a.as_mut()
                 {
-                    a.scope = None;
+                    a.navigate(None, true);
                 }
             });
             show_palette(hwnd);
@@ -1422,7 +1679,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         WM_GETMINMAXINFO => {
             if l != 0 {
                 let info = unsafe { &mut *(l as *mut MINMAXINFO) };
-                info.ptMinTrackSize = POINT { x: 1040, y: 660 };
+                let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as i32;
+                info.ptMinTrackSize = POINT {
+                    x: 1040 * dpi / 96,
+                    y: 660 * dpi / 96,
+                };
             }
             return 0;
         }
@@ -1464,6 +1725,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                                 );
                                 *info.item.pszText.add(len) = 0;
                             }
+                        }
+                        if let Ok(a) = a.try_borrow()
+                            && let Some(a) = a.as_ref()
+                            && let Some(row) = a.rows.get(info.item.iItem as usize)
+                            && info.item.mask & LVIF_IMAGE != 0
+                        {
+                            info.item.iImage = a
+                                .icons
+                                .get(&super::icons::key(&row.name, row.directory))
+                                .copied()
+                                .unwrap_or(0);
                         }
                     });
                 }
@@ -1568,8 +1840,34 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         }
                     }
                     (SPOTLIGHT, 0) => {
-                        app.scope = None;
+                        app.navigate(None, true);
                         show_palette(hwnd);
+                    }
+                    (WDS_SCOPE, 0) => {
+                        if let Some(executable) = super::windirstat::installed() {
+                            let target = app
+                                .selected()
+                                .filter(|r| r.directory)
+                                .map(|r| r.path)
+                                .or_else(|| app.scope.clone());
+                            if let Some(target) = target {
+                                if let Err(e) =
+                                    std::process::Command::new(executable).arg(target).spawn()
+                                {
+                                    set(control(hwnd, STATUS), &e.to_string());
+                                }
+                            } else {
+                                set(
+                                    control(hwnd, STATUS),
+                                    "Выберите диск или папку для анализа.",
+                                );
+                            }
+                        } else {
+                            set(
+                                control(hwnd, STATUS),
+                                "WinDirStat не найден. Откройте Хранилище в параметрах.",
+                            );
+                        }
                     }
                     (HOTKEY_SAVE, 0) => {
                         let value = text(control(hwnd, HOTKEY));
@@ -1637,6 +1935,19 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     (WDS, 0) => {
                         let target = super::windirstat::installed()
                             .map(|p| p.to_string_lossy().into_owned())
+                            .or_else(|| {
+                                super::windirstat::downloaded()
+                                    .map(|p| {
+                                        if p.extension()
+                                            .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                                        {
+                                            p
+                                        } else {
+                                            p.parent().unwrap_or(&p).to_path_buf()
+                                        }
+                                    })
+                                    .map(|p| p.to_string_lossy().into_owned())
+                            })
                             .unwrap_or_else(|| super::windirstat::RELEASES.into());
                         unsafe {
                             ShellExecuteW(
@@ -1809,6 +2120,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
 }
 pub fn run() {
     unsafe {
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let common = INITCOMMONCONTROLSEX {
             dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
             dwICC: ICC_LISTVIEW_CLASSES | ICC_STANDARD_CLASSES,
@@ -1827,6 +2139,7 @@ pub fn run() {
         if RegisterClassW(&wc) == 0 {
             return;
         }
+        let initial_dpi = GetDpiForSystem().max(96) as i32;
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
@@ -1834,8 +2147,8 @@ pub fn run() {
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1200,
-            800,
+            1200*initial_dpi/96,
+            800*initial_dpi/96,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             instance,
@@ -1960,6 +2273,13 @@ pub fn run() {
             wide("Этот компьютер").as_ptr() as isize,
         );
         let mut sidebar = vec![None];
+        SendMessageW(
+            sidebar_control,
+            0x180,
+            0,
+            wide("Недавние файлы").as_ptr() as isize,
+        );
+        sidebar.push(Some("hypersearch:recent".into()));
         for root in filesystem::drives() {
             SendMessageW(
                 sidebar_control,
@@ -2009,6 +2329,46 @@ pub fn run() {
         child(hwnd, "BUTTON", "Экспорт структуры", WS_TABSTOP, EXPORT);
         child(hwnd, "BUTTON", "Отчёт для ИИ", WS_TABSTOP, AI_REPORT);
         child(hwnd, "BUTTON", "Отмена", WS_TABSTOP, CANCEL_EXPORT);
+        child(
+            hwnd,
+            "STATIC",
+            "Область (пусто = текущая папка), формат; ниже глубина и мин. байт.\r\nИсключения — абсолютные пути через ;",
+            0,
+            EXPORT_HELP,
+        );
+        let export_roots = child(hwnd, "COMBOBOX", "", WS_TABSTOP | 2, EXPORT_ROOT);
+        for drive in filesystem::drives() {
+            SendMessageW(export_roots, 0x143, 0, wide(&drive).as_ptr() as isize);
+        }
+        child(
+            hwnd,
+            "EDIT",
+            "1000",
+            WS_TABSTOP | 0x80 | 0x2000,
+            EXPORT_DEPTH,
+        );
+        child(hwnd, "EDIT", "0", WS_TABSTOP | 0x80 | 0x2000, EXPORT_MIN);
+        child(
+            hwnd,
+            "BUTTON",
+            "Нейтральные имена",
+            WS_TABSTOP | 3,
+            EXPORT_NEUTRAL,
+        );
+        child(
+            hwnd,
+            "BUTTON",
+            "Компактный отчёт",
+            WS_TABSTOP | 3,
+            EXPORT_COMPACT,
+        );
+        let exclude = child(hwnd, "EDIT", "", WS_TABSTOP | 0x80, EXPORT_EXCLUDE);
+        SendMessageW(
+            exclude,
+            0x1501,
+            0,
+            wide("Исключить: C:\\личное;D:\\работа").as_ptr() as isize,
+        );
         let formats = child(hwnd, "COMBOBOX", "", WS_TABSTOP | 3, EXPORT_FORMAT);
         for name in ["Markdown", "JSON", "CSV"] {
             SendMessageW(formats, 0x143, 0, wide(name).as_ptr() as isize);
@@ -2061,7 +2421,7 @@ pub fn run() {
             hwnd,
             "SysListView32",
             "",
-            WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS,
+            WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS,
             OUTPUT,
         );
         SendMessageW(
@@ -2111,6 +2471,7 @@ pub fn run() {
             plan_saved: false,
             plan_root: "*".into(),
             export_cancel: None,
+            icons: std::collections::HashMap::new(),
         };
         app.refresh_windirstat();
         if let Some(p) = app.saved
@@ -2143,8 +2504,8 @@ pub fn run() {
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1040,
-            620,
+            1040*initial_dpi/96,
+            620*initial_dpi/96,
             hwnd,
             std::ptr::null_mut(),
             instance,
@@ -2185,6 +2546,13 @@ pub fn run() {
             SEARCH_HELP,
             PERF_HELP,
             ANIMATIONS,
+            EXPORT_ROOT,
+            EXPORT_DEPTH,
+            EXPORT_MIN,
+            EXPORT_NEUTRAL,
+            EXPORT_EXCLUDE,
+            EXPORT_COMPACT,
+            EXPORT_HELP,
         ] {
             SetParent(GetDlgItem(hwnd, id as i32), settings_window);
         }
@@ -2208,7 +2576,12 @@ pub fn run() {
             popup,
             "SysListView32",
             "",
-            WS_TABSTOP | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
+            WS_TABSTOP
+                | LVS_REPORT
+                | LVS_OWNERDATA
+                | LVS_SINGLESEL
+                | LVS_SHOWSELALWAYS
+                | LVS_SHAREIMAGELISTS,
             OUTPUT,
         );
         for (i, title) in ["Имя", "Расположение"].into_iter().enumerate() {
@@ -2235,7 +2608,17 @@ pub fn run() {
         let look = super::appearance::Appearance::load(&index_path().with_extension("appearance"));
         LOOK.with(|value| value.set(look));
         look.apply(settings_window);
+        look.apply(hwnd);
         look.apply(popup);
+        if look.transparency {
+            let acrylic = 3u32;
+            windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute(
+                popup,
+                38,
+                (&acrylic as *const u32).cast(),
+                4,
+            );
+        }
         if let Err(e) = register_shortcut(hwnd, &shortcut) {
             set(control(hwnd, HOTKEY_LABEL), &e);
         }
@@ -2416,6 +2799,7 @@ mod tests {
                 plan_saved: false,
                 plan_root: "*".into(),
                 export_cancel: None,
+                icons: std::collections::HashMap::new(),
             };
             app.render_rows();
             assert_eq!(SendMessageW(list, LVM_GETITEMCOUNT, 0, 0), 1);
@@ -2450,6 +2834,44 @@ mod tests {
                 }
                 _ => panic!("expected navigation request"),
             }
+            DestroyWindow(list);
+            let virtual_list = child(
+                parent,
+                "SysListView32",
+                "",
+                LVS_REPORT | LVS_OWNERDATA,
+                OUTPUT,
+            );
+            app.rows = vec![Row {
+                name: "Очень длинное имя — 文件.xlsx".into(),
+                path: "C:\\Docs\\文件.xlsx".into(),
+                kind: "XLSX".into(),
+                directory: false,
+            }];
+            app.render_rows();
+            assert_eq!(SendMessageW(virtual_list, LVM_GETITEMCOUNT, 0, 0), 1);
+            APP.with(|cell| *cell.borrow_mut() = Some(app));
+            let mut info: NMLVDISPINFOW = std::mem::zeroed();
+            let mut buffer = [0u16; 128];
+            info.hdr.idFrom = OUTPUT;
+            info.hdr.code = LVN_GETDISPINFOW;
+            info.item.mask = LVIF_TEXT;
+            info.item.pszText = buffer.as_mut_ptr();
+            info.item.cchTextMax = buffer.len() as i32;
+            window_proc(parent, WM_NOTIFY, OUTPUT, &mut info as *mut _ as isize);
+            let len = buffer.iter().position(|&c| c == 0).unwrap();
+            assert_eq!(
+                String::from_utf16_lossy(&buffer[..len]),
+                "Очень длинное имя — 文件.xlsx"
+            );
+            info.item.cchTextMax = 4;
+            buffer.fill(0xffff);
+            window_proc(parent, WM_NOTIFY, OUTPUT, &mut info as *mut _ as isize);
+            assert_eq!(buffer[3], 0);
+            assert_eq!(buffer[4], 0xffff);
+            APP.with(|cell| {
+                cell.borrow_mut().take();
+            });
             DestroyWindow(parent);
         }
     }

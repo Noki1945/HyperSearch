@@ -49,6 +49,26 @@ pub(crate) struct Names {
     spans: Vec<(usize, usize)>,
 }
 impl Names {
+    fn replace(&mut self, id: usize, name: &str) {
+        let (a, b) = self.spans[id];
+        if name.len() <= b - a {
+            // Both endpoints are UTF-8 boundaries. Fill the whole old span with ASCII,
+            // then copy complete UTF-8; the entire String remains valid on return.
+            unsafe {
+                let bytes = self.blob.as_mut_vec();
+                bytes[a..b].fill(b' ');
+                bytes[a..a + name.len()].copy_from_slice(name.as_bytes());
+            }
+            self.spans[id] = (a, a + name.len());
+        } else {
+            if self.blob.capacity() - self.blob.len() < name.len() {
+                self.blob.reserve_exact(name.len().max(64 * 1024));
+            }
+            let start = self.blob.len();
+            self.blob.push_str(name);
+            self.spans[id] = (start, start + name.len());
+        }
+    }
     fn push(&mut self, s: &str) {
         let start = self.blob.len();
         self.blob.push_str(s);
@@ -299,6 +319,11 @@ impl SearchIndex {
         let lookups: usize = self.lookups.iter().map(|m| m.capacity() * 20).sum();
         records
             + lookups
+            + self
+                .ids_by_entry
+                .iter()
+                .map(|ids| ids.capacity() * std::mem::size_of::<Option<u32>>())
+                .sum::<usize>()
             + self.names.blob.capacity()
             + self.names.spans.capacity() * 16
             + self.locations.capacity() * 8
@@ -571,9 +596,7 @@ impl SearchIndex {
                             .add(id, self.names.len());
                     }
                 }
-                let start = self.names.blob.len();
-                self.names.blob.push_str(&new);
-                self.names.spans[id as usize] = (start, start + new.len());
+                self.names.replace(id as usize, &new);
                 if !new.is_empty() {
                     let at = self.sorted.partition_point(|&other| {
                         self.names[other as usize]

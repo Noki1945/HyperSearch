@@ -63,6 +63,7 @@ pub fn exclude(volumes: &mut [Volume], snapshot: &Path) {
                 || name == format!("{stem}.hotkey")
                 || name == format!("{stem}.opens")
                 || name == "windirstat.path"
+                || name == "windirstat.download"
                 || (name.starts_with(&format!("{stem}."))
                     && (name.ends_with(".hsc") || name.ends_with(".tmp"))))
         });

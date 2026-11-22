@@ -85,7 +85,10 @@ impl Appearance {
         }
     }
     pub fn apply(self, hwnd: HWND) {
-        use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+        use windows_sys::Win32::Graphics::Dwm::{
+            DwmExtendFrameIntoClientArea, DwmSetWindowAttribute,
+        };
+        use windows_sys::Win32::UI::{Controls::MARGINS, WindowsAndMessaging::*};
         // Unsupported attributes fail harmlessly on older Windows builds.
         let dark = self.dark() as u32;
         let rounded = 2u32;
@@ -93,9 +96,49 @@ impl Appearance {
         unsafe {
             DwmSetWindowAttribute(hwnd, 20, (&dark as *const u32).cast(), 4);
             DwmSetWindowAttribute(hwnd, 33, (&rounded as *const u32).cast(), 4);
-            DwmSetWindowAttribute(hwnd, 38, (&backdrop as *const u32).cast(), 4);
+            let supported =
+                DwmSetWindowAttribute(hwnd, 38, (&backdrop as *const u32).cast(), 4) >= 0;
+            let margin = if self.transparency && supported {
+                -1
+            } else {
+                0
+            };
+            let margins = MARGINS {
+                cxLeftWidth: margin,
+                cxRightWidth: margin,
+                cyTopHeight: margin,
+                cyBottomHeight: margin,
+            };
+            DwmExtendFrameIntoClientArea(hwnd, &margins);
+            let key: Vec<_> = "HyperSearch.Glass".encode_utf16().chain(Some(0)).collect();
+            SetPropW(
+                hwnd,
+                key.as_ptr(),
+                (self.transparency && supported) as usize as _,
+            );
+            EnumChildWindows(hwnd, Some(theme_child), dark as isize);
+            windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, std::ptr::null(), 1);
         }
     }
+}
+unsafe extern "system" fn theme_child(hwnd: HWND, dark: isize) -> i32 {
+    use windows_sys::Win32::UI::{Controls::*, WindowsAndMessaging::*};
+    let mut class = [0u16; 64];
+    unsafe {
+        let len = GetClassNameW(hwnd, class.as_mut_ptr(), 64);
+        if String::from_utf16_lossy(&class[..len as usize]) == "SysListView32" {
+            let (bg, fg) = if dark != 0 {
+                (0x00282020, 0x00f2f2f2)
+            } else {
+                (0x00faf7f4, 0x00282020)
+            };
+            SendMessageW(hwnd, LVM_SETBKCOLOR, 0, bg);
+            SendMessageW(hwnd, LVM_SETTEXTBKCOLOR, 0, bg);
+            SendMessageW(hwnd, LVM_SETTEXTCOLOR, 0, fg);
+        }
+        windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, std::ptr::null(), 1);
+    }
+    1
 }
 #[cfg(test)]
 mod tests {
