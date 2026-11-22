@@ -644,6 +644,19 @@ fn control(hwnd: HWND, id: usize) -> HWND {
 fn palette(hwnd: HWND) -> HWND {
     unsafe { GetPropW(hwnd, wide("HyperSearch.Palette").as_ptr()) }
 }
+fn palette_bounds(work: &RECT, dpi: u32) -> RECT {
+    let dpi = dpi.max(96) as i32;
+    let width = (760 * dpi / 96).min(work.right - work.left);
+    let height = (430 * dpi / 96).min(work.bottom - work.top);
+    let left = work.left + (work.right - work.left - width) / 2;
+    let top = work.top + (work.bottom - work.top - height) / 3;
+    RECT {
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+    }
+}
 fn copy_text(hwnd: HWND, value: &str) -> Result<(), String> {
     use windows_sys::Win32::System::{DataExchange::*, Memory::*};
     let value = wide(value);
@@ -683,16 +696,14 @@ fn show_palette(hwnd: HWND) {
         let mut info: MONITORINFO = std::mem::zeroed();
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
         GetMonitorInfoW(monitor, &mut info);
-        let dpi = GetDpiForWindow(p).max(96) as i32;
-        let width = (760 * dpi / 96).min(info.rcWork.right - info.rcWork.left);
-        let height = (430 * dpi / 96).min(info.rcWork.bottom - info.rcWork.top);
+        let bounds = palette_bounds(&info.rcWork, GetDpiForWindow(p));
         SetWindowPos(
             p,
             HWND_TOP,
-            info.rcWork.left + (info.rcWork.right - info.rcWork.left - width) / 2,
-            info.rcWork.top + (info.rcWork.bottom - info.rcWork.top - height) / 3,
-            width,
-            height,
+            bounds.left,
+            bounds.top,
+            bounds.right - bounds.left,
+            bounds.bottom - bounds.top,
             SWP_NOACTIVATE,
         );
         let animated = LOOK.with(|look| look.get().animations);
@@ -3119,6 +3130,49 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn spotlight_bounds_across_dpi_and_negative_monitors() {
+        for work in [
+            RECT {
+                left: 0,
+                top: 0,
+                right: 1920,
+                bottom: 1040,
+            },
+            RECT {
+                left: -1920,
+                top: -400,
+                right: 0,
+                bottom: 680,
+            },
+            RECT {
+                left: 1920,
+                top: 0,
+                right: 4480,
+                bottom: 1400,
+            },
+            RECT {
+                left: 0,
+                top: 0,
+                right: 640,
+                bottom: 480,
+            },
+        ] {
+            for dpi in [96, 120, 144, 192] {
+                let bounds = palette_bounds(&work, dpi);
+                assert!(
+                    bounds.left >= work.left
+                        && bounds.top >= work.top
+                        && bounds.right <= work.right
+                        && bounds.bottom <= work.bottom
+                );
+                assert_eq!(
+                    bounds.right - bounds.left,
+                    (760 * dpi as i32 / 96).min(work.right - work.left)
+                );
+            }
+        }
+    }
     #[test]
     fn native_details_control_renders_unicode_and_selection() {
         unsafe {
