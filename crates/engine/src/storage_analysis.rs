@@ -290,6 +290,20 @@ pub fn export(
     if !root.is_dir() {
         return Err(io::Error::other("analysis root must be a directory"));
     }
+    // Indexed roots are canonical (long Windows names). Preserve lexical exclusions
+    // too, but resolve short 8.3 names, dot segments and existing aliases before use.
+    let mut exclusions = Vec::new();
+    for path in &o.exclusions {
+        let path = if path.is_absolute() {
+            path.clone()
+        } else {
+            root.join(path)
+        };
+        if let Ok(canonical) = path.canonicalize() {
+            exclusions.push(canonical);
+        }
+        exclusions.push(path);
+    }
     let mut writer = BufWriter::new(
         OpenOptions::new()
             .write(true)
@@ -353,7 +367,7 @@ pub fn export(
             if !inside(&path, &root) {
                 continue;
             }
-            if o.exclusions.iter().any(|p| inside(&path, p)) {
+            if exclusions.iter().any(|p| inside(&path, p)) {
                 summary.excluded += 1;
                 continue;
             }

@@ -106,7 +106,7 @@ fn exports_sizes_privacy_formats_and_cancel() {
     );
     let csv = temp.join("report.csv");
     let mut o = Options::safe(root.clone(), Format::Csv);
-    o.exclusions.push(root.join("nested"));
+    o.exclusions.push(root.join("nested/../nested"));
     let summary =
         storage_analysis::export(std::slice::from_ref(&v), &o, &csv, &stop, |_, _| {}).unwrap();
     assert_eq!(summary.totals.logical_bytes, 100);
