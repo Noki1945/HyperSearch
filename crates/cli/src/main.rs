@@ -40,6 +40,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cmd = args.first().map(String::as_str).unwrap_or("interactive");
     let path = data_path();
     match cmd {
+        "audit" => hypersearch_engine::benchmark::audit(
+            &path,
+            MemoryMode::parse(option(&args, "--memory").unwrap_or("fast"))
+                .ok_or("invalid memory mode")?,
+            option(&args, "--iterations").unwrap_or("100").parse()?,
+        )?,
         "export" => {
             use hypersearch_engine::storage_analysis::{self, Format, Options};
             let root = PathBuf::from(option(&args, "--root").ok_or("export requires --root DIR")?);
@@ -59,6 +65,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or("18446744073709551615")
                 .parse()?;
             options.min_bytes = option(&args, "--min-bytes").unwrap_or("0").parse()?;
+            options.part_rows = option(&args, "--part-rows").unwrap_or("50000").parse()?;
             options.exclusions = option(&args, "--exclude")
                 .map(|s| s.split(';').map(PathBuf::from).collect())
                 .unwrap_or_default();

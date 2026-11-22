@@ -25,6 +25,7 @@ pub struct Options {
     pub max_depth: usize,
     pub min_bytes: u64,
     pub exclusions: Vec<PathBuf>,
+    pub part_rows: usize,
 }
 impl Options {
     pub fn safe(root: PathBuf, format: Format) -> Self {
@@ -37,6 +38,7 @@ impl Options {
             max_depth: usize::MAX,
             min_bytes: 0,
             exclusions: vec![],
+            part_rows: 50_000,
         }
     }
 }
@@ -86,8 +88,11 @@ pub struct Summary {
     pub categories: HashMap<String, Totals>,
     pub volume_capacity_bytes: Option<u64>,
     pub volume_available_bytes: Option<u64>,
+    pub volume_used_bytes: Option<u64>,
     pub old_large_files: Vec<Object>,
     pub review_candidates: Vec<Object>,
+    pub large_temporary_directories: Vec<Directory>,
+    pub parts: Vec<String>,
     pub method: String,
     pub privacy: String,
 }
@@ -138,6 +143,70 @@ fn csv(s: &str) -> String {
 fn json_error(e: serde_json::Error) -> io::Error {
     io::Error::other(e)
 }
+const CSV_HEADER: &str = "name,path,parent,kind,extension,logical_bytes,allocated_bytes,modified_unix_seconds,created_unix_seconds,depth,attributes,reparse,warning";
+fn begin_part(writer: &mut impl Write, format: Format, directories: bool) -> io::Result<()> {
+    match format {
+        Format::Json => writer.write_all(if directories {
+            b"{\"schema\":\"hypersearch-storage-1\",\"objects\":[],\"directories\":["
+        } else {
+            b"{\"schema\":\"hypersearch-storage-1\",\"objects\":["
+        }),
+        Format::Csv => writeln!(writer, "{CSV_HEADER}"),
+        Format::Markdown => writeln!(
+            writer,
+            "# Storage report continuation\n\nThe final part contains whole-analysis totals and methodology.\n"
+        ),
+    }
+}
+fn rotate(
+    writer: &mut BufWriter<std::fs::File>,
+    destination: &Path,
+    format: Format,
+    directories: bool,
+    parts: &mut Vec<String>,
+) -> io::Result<()> {
+    let stem = destination
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let ext = destination
+        .extension()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let name = format!("{stem}.part{:04}.{ext}", parts.len() + 1);
+    match format {
+        Format::Json => {
+            writer.write_all(if directories {
+                b"],\"summary\":{\"continuation\":"
+            } else {
+                b"],\"directories\":[],\"summary\":{\"continuation\":"
+            })?;
+            serde_json::to_writer(&mut *writer, &name).map_err(json_error)?;
+            writer.write_all(
+                b",\"totals_scope\":\"whole-analysis totals are in the final part\"}}",
+            )?;
+        }
+        Format::Csv => writeln!(
+            writer,
+            "{},,,{},,,,,,,,,{}",
+            csv("# continuation"),
+            csv("continuation"),
+            csv(&name)
+        )?,
+        Format::Markdown => writeln!(
+            writer,
+            "\nContinues in `{}`. Whole-analysis totals are in the final part.",
+            name.replace('`', "'")
+        )?,
+    }
+    writer.flush()?;
+    writer.get_ref().sync_all()?;
+    let next = destination.with_file_name(&name);
+    *writer = BufWriter::new(OpenOptions::new().write(true).create_new(true).open(next)?);
+    begin_part(writer, format, directories)?;
+    parts.push(name);
+    Ok(())
+}
 fn caution(path: &Path) -> Option<String> {
     let p = normalized(path);
     ["windows", "program files", "program files (x86)", "programdata", "appdata", "system volume information", "windows.old", "pagefile.sys", "hiberfil.sys"]
@@ -179,18 +248,33 @@ fn disk_space(root: &Path) -> (Option<u64>, Option<u64>) {
     (None, None)
 }
 fn top(files: &mut Vec<Object>, object: &Object) {
-    files.push(object.clone());
-    files.sort_unstable_by_key(|f| std::cmp::Reverse(f.logical_bytes));
+    let at = files.partition_point(|f| f.logical_bytes >= object.logical_bytes);
+    if at >= 100 {
+        return;
+    }
+    files.insert(at, object.clone());
     files.truncate(100);
+}
+fn top_directory(directories: &mut Vec<Directory>, directory: Directory) {
+    let at =
+        directories.partition_point(|d| d.totals.logical_bytes >= directory.totals.logical_bytes);
+    if at >= 100 {
+        return;
+    }
+    directories.insert(at, directory);
+    directories.truncate(100);
 }
 pub fn preview(o: &Options) -> String {
     format!(
-        "Корень: {}\nБезопасный режим: {}\nНейтральные имена: {}\nКомпактный: {}\nИсключений: {}\nСодержимое файлов не читается. Даже скрытые имена пользователей не гарантируют анонимность названий документов. Ничего не отправляется в интернет.",
+        "Корень: {}\nБезопасный режим: {}\nНейтральные имена: {}\nКомпактный: {}\nИсключений: {}\nГлубина: {}; минимум: {} байт; записей на часть: {} (0 = один файл)\nСодержимое файлов не читается. Даже скрытые имена пользователей не гарантируют анонимность названий документов. Ничего не отправляется в интернет.",
         redact(&o.root, o),
         o.safe,
         o.neutral_names,
         o.compact,
-        o.exclusions.len()
+        o.exclusions.len(),
+        o.max_depth,
+        o.min_bytes,
+        o.part_rows
     )
 }
 pub const AI_PROMPT: &str = "Проанализируй приложенный отчёт о файловой системе Windows. Найди крупные каталоги и файлы — кандидаты на проверку. Раздели рекомендации на безопасные, требующие проверки и системные объекты, которые нельзя удалять вручную. Не суммируй вложенные каталоги повторно. Не предлагай удаление Windows, WinSxS, System32, Program Files, ProgramData, AppData, pagefile.sys, hiberfil.sys или System Volume Information без штатной процедуры. Для программ предложи штатную деинсталляцию; для Windows.old — штатную очистку после проверки. Объясни риски и ограничения неполных данных. Размер и возраст не доказывают ненужность или дубликаты.";
@@ -213,6 +297,15 @@ pub fn export(
             .open(destination)?,
     );
     let mut summary=Summary{root:redact(&root,o),snapshot_warnings:volumes.iter().map(|v|v.warnings.len()).sum(),method:"Indexed names + symlink_metadata; logical sizes counted per indexed pathname. Allocated/physical bytes unknown. Hard links may be counted more than once; USN may omit alternate names. Reparse points are not traversed. Snapshot may be stale. No hashes/confirmed duplicates. Directory totals overlap: never sum top directories. No automatic deletion.".into(),privacy:if o.safe{"Username masking enabled; document names may still be sensitive."}else{"Full paths and names included."}.into(),..Default::default()};
+    summary.parts.push(
+        destination
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned(),
+    );
+    let mut part_rows = 0;
+    let mut object_rows = 0;
     match o.format {
         Format::Json => writer.write_all(b"{\"schema\":\"hypersearch-storage-1\",\"objects\":[")?,
         Format::Csv => writeln!(
@@ -230,12 +323,16 @@ pub fn export(
         summary.volume_capacity_bytes,
         summary.volume_available_bytes,
     ) = disk_space(&root);
+    summary.volume_used_bytes = summary
+        .volume_capacity_bytes
+        .zip(summary.volume_available_bytes)
+        .map(|(total, available)| total.saturating_sub(available));
     let now = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
     let mut folders: HashMap<PathBuf, Totals> = HashMap::new();
-    let mut blocked_parents: HashMap<PathBuf, bool> = HashMap::new();
+    let mut blocked_parents: HashMap<PathBuf, u8> = HashMap::new();
     let total = volumes.iter().map(|v| v.entries.len() as u64).sum();
     let mut visited = 0u64;
     'volumes: for v in volumes {
@@ -263,7 +360,7 @@ pub fn export(
             if path == destination {
                 continue;
             }
-            let mut unsafe_parent = false;
+            let mut unsafe_parent = 0;
             for parent in path.ancestors().skip(1) {
                 if !inside(parent, &root) {
                     break;
@@ -275,22 +372,26 @@ pub fn export(
                             #[cfg(windows)]
                             {
                                 use std::os::windows::fs::MetadataExt;
-                                m.file_attributes() & 0x400 != 0
+                                u8::from(m.file_attributes() & 0x400 != 0)
                             }
                             #[cfg(not(windows))]
                             {
-                                m.file_type().is_symlink()
+                                u8::from(m.file_type().is_symlink())
                             }
                         }
-                        Err(_) => true,
+                        Err(_) => 2,
                     });
-                if blocked {
-                    unsafe_parent = true;
+                if blocked != 0 {
+                    unsafe_parent = blocked;
                     break;
                 }
             }
-            if unsafe_parent {
-                summary.reparse_skipped += 1;
+            if unsafe_parent != 0 {
+                if unsafe_parent == 1 {
+                    summary.reparse_skipped += 1;
+                } else {
+                    summary.inaccessible += 1;
+                }
                 continue;
             }
             let depth = path
@@ -404,7 +505,7 @@ pub fn export(
                 }
                 parent = p.parent().map(Path::to_path_buf);
             }
-            if !e.directory && file_bytes > 0 {
+            if !e.directory && file_bytes > 0 && depth <= o.max_depth && file_bytes >= o.min_bytes {
                 top(&mut summary.top_files, &object);
                 if file_bytes >= 100 * 1024 * 1024 {
                     if object
@@ -428,9 +529,20 @@ pub fn export(
                 summary.omitted += 1;
                 continue;
             }
+            if o.part_rows > 0 && part_rows >= o.part_rows {
+                rotate(
+                    &mut writer,
+                    destination,
+                    o.format,
+                    false,
+                    &mut summary.parts,
+                )?;
+                part_rows = 0;
+                object_rows = 0;
+            }
             match o.format {
                 Format::Json => {
-                    if summary.exported > 0 {
+                    if object_rows > 0 {
                         writer.write_all(b",")?;
                     }
                     serde_json::to_writer(&mut writer, &object).map_err(json_error)?;
@@ -478,10 +590,29 @@ pub fn export(
                 )?,
             }
             summary.exported += 1;
+            part_rows += 1;
+            object_rows += 1;
         }
     }
+    if matches!(o.format, Format::Json) {
+        writer.write_all(b"],\"directories\":[")?;
+    }
+    let mut directory_rows = 0;
     for (path, totals) in folders {
-        summary.top_directories.push(Directory {
+        if cancel.load(Ordering::Relaxed) {
+            summary.cancelled = true;
+            break;
+        }
+        if path
+            .components()
+            .count()
+            .saturating_sub(root.components().count())
+            > o.max_depth
+            || (totals.logical_bytes < o.min_bytes && path != root)
+        {
+            continue;
+        }
+        let directory = Directory {
             caution: caution(&path),
             path: redact(&path, o),
             share_percent: if summary.totals.logical_bytes > 0 {
@@ -490,7 +621,54 @@ pub fn export(
                 0.
             },
             totals,
-        });
+        };
+        if !o.compact {
+            if o.part_rows > 0 && part_rows >= o.part_rows {
+                rotate(&mut writer, destination, o.format, true, &mut summary.parts)?;
+                part_rows = 0;
+                directory_rows = 0;
+            }
+            match o.format {
+                Format::Json => {
+                    if directory_rows > 0 {
+                        writer.write_all(b",")?;
+                    }
+                    serde_json::to_writer(&mut writer, &directory).map_err(json_error)?;
+                }
+                Format::Csv => writeln!(
+                    writer,
+                    "{},{},,{},,,,,,,,,{}",
+                    csv("directory totals"),
+                    csv(&directory.path),
+                    csv("directory_summary"),
+                    csv(&serde_json::to_string(&directory).map_err(json_error)?)
+                )?,
+                Format::Markdown => writeln!(
+                    writer,
+                    "- Directory `{}`: {} logical bytes; {} files; {} folders; {:.2}%{}",
+                    directory.path.replace('`', "'"),
+                    directory.totals.logical_bytes,
+                    directory.totals.files,
+                    directory.totals.folders,
+                    directory.share_percent,
+                    directory
+                        .caution
+                        .as_ref()
+                        .map(|s| format!("; {s}"))
+                        .unwrap_or_default()
+                )?,
+            }
+            directory_rows += 1;
+            part_rows += 1;
+        }
+        if path
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().eq_ignore_ascii_case("temp"))
+            && directory.totals.logical_bytes >= 100 * 1024 * 1024
+        {
+            top_directory(&mut summary.large_temporary_directories, directory.clone());
+        }
+        top_directory(&mut summary.top_directories, directory);
     }
     summary
         .top_directories
@@ -523,6 +701,15 @@ pub fn export(
                 summary.inaccessible,
                 summary.cancelled
             )?;
+            writeln!(
+                writer,
+                "\nVolume capacity: {:?} bytes; available to caller: {:?} bytes; used/unavailable to caller: {:?} bytes. Volume values are independent of the selected subtree.\nSnapshot warnings: {}; reparse/unavailable ancestor skips: {}\n",
+                summary.volume_capacity_bytes,
+                summary.volume_available_bytes,
+                summary.volume_used_bytes,
+                summary.snapshot_warnings,
+                summary.reparse_skipped
+            )?;
             for d in &summary.top_directories {
                 writeln!(
                     writer,
@@ -531,6 +718,9 @@ pub fn export(
                     d.totals.logical_bytes,
                     d.share_percent
                 )?;
+                if let Some(caution) = &d.caution {
+                    writeln!(writer, "  - {caution}")?;
+                }
             }
             writeln!(writer, "\n## Largest files\n")?;
             for f in &summary.top_files {
@@ -541,7 +731,63 @@ pub fn export(
                     f.logical_bytes.unwrap_or(0)
                 )?;
             }
-            writeln!(writer, "\n## Request for AI\n\n{AI_PROMPT}")?;
+            for (label, totals) in [
+                ("Extensions", &summary.extensions),
+                ("Categories", &summary.categories),
+            ] {
+                writeln!(writer, "\n## {label}\n")?;
+                let mut rows: Vec<_> = totals.iter().collect();
+                rows.sort_by_key(|(_, t)| std::cmp::Reverse(t.logical_bytes));
+                for (name, t) in rows {
+                    writeln!(
+                        writer,
+                        "- {}: {} bytes; {} files",
+                        name.replace(['`', '\n', '\r'], "_"),
+                        t.logical_bytes,
+                        t.files
+                    )?;
+                }
+            }
+            for (label, files) in [
+                (
+                    "Old large files (90 days, 100 MiB)",
+                    &summary.old_large_files,
+                ),
+                (
+                    "Candidates for human review only",
+                    &summary.review_candidates,
+                ),
+            ] {
+                writeln!(writer, "\n## {label}\n")?;
+                for f in files {
+                    writeln!(
+                        writer,
+                        "- `{}` — {} bytes; {}",
+                        f.path.replace('`', "'"),
+                        f.logical_bytes.unwrap_or(0),
+                        f.warning
+                            .as_deref()
+                            .unwrap_or("Age and size do not imply that deletion is safe.")
+                    )?;
+                }
+            }
+            writeln!(
+                writer,
+                "\n## Large temporary directories (overlapping; review only)\n"
+            )?;
+            for d in &summary.large_temporary_directories {
+                writeln!(
+                    writer,
+                    "- `{}` — {} bytes; use application/Windows cleanup after review.",
+                    d.path.replace('`', "'"),
+                    d.totals.logical_bytes
+                )?;
+            }
+            writeln!(
+                writer,
+                "\nParts: {:?}. Whole-analysis summary is in this final part.\n\n## Request for AI\n\n{AI_PROMPT}",
+                summary.parts
+            )?;
         }
     }
     writer.flush()?;

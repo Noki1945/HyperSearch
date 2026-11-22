@@ -4,6 +4,83 @@ use hypersearch_engine::{
 };
 use std::sync::atomic::AtomicBool;
 #[test]
+fn hardlinks_long_paths_missing_metadata_and_mid_scan_cancel() {
+    let temp = std::env::temp_dir().join(format!("hs-storage-edge-{}", std::process::id()));
+    let root = temp.join("fixture");
+    std::fs::create_dir_all(root.join("Windows")).unwrap();
+    let mut deep = root.clone();
+    let mut directories = vec![root.clone()];
+    for i in 0..5 {
+        deep = deep.join(format!("{i}_{}", "длинный_каталог_".repeat(4)));
+        std::fs::create_dir(&deep).unwrap();
+        directories.push(deep.clone());
+    }
+    let long = deep.join("秘密.txt");
+    std::fs::write(&long, [0; 100]).unwrap();
+    std::fs::write(root.join("original.bin"), [0; 17]).unwrap();
+    std::fs::hard_link(root.join("original.bin"), root.join("alias.bin")).unwrap();
+    std::fs::write(root.join("gone.bin"), [0; 11]).unwrap();
+    let v = filesystem::walk(&root).unwrap();
+    std::fs::remove_file(root.join("gone.bin")).unwrap();
+    let output = temp.join("edges.json");
+    let summary = storage_analysis::export(
+        &[v],
+        &Options::safe(root.clone(), Format::Json),
+        &output,
+        &AtomicBool::new(false),
+        |_, _| {},
+    )
+    .unwrap();
+    assert_eq!(
+        summary.totals.logical_bytes, 134,
+        "hard links counted per pathname, not as unique physical bytes"
+    );
+    assert_eq!(summary.inaccessible, 1);
+    assert!(summary.method.contains("Hard links"));
+    assert!(
+        summary
+            .top_directories
+            .iter()
+            .any(|d| d.path.ends_with("Windows") && d.caution.is_some())
+    );
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&output).unwrap()).unwrap();
+    assert!(json["directories"].as_array().unwrap().len() >= 6);
+    let mut files = vec![long, root.join("original.bin"), root.join("alias.bin")];
+    for i in 0..300 {
+        let path = root.join(format!("cancel_{i}.txt"));
+        std::fs::write(&path, b"x").unwrap();
+        files.push(path);
+    }
+    let v = filesystem::walk(&root).unwrap();
+    let cancel = AtomicBool::new(false);
+    let cancelled = temp.join("mid-scan.json");
+    let summary = storage_analysis::export(
+        &[v],
+        &Options::safe(root.clone(), Format::Json),
+        &cancelled,
+        &cancel,
+        |done, _| {
+            if done >= 256 {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        },
+    )
+    .unwrap();
+    assert!(summary.cancelled);
+    assert!(summary.totals.files < 303);
+    let _: serde_json::Value = serde_json::from_slice(&std::fs::read(&cancelled).unwrap()).unwrap();
+    for path in files {
+        std::fs::remove_file(path).unwrap();
+    }
+    std::fs::remove_file(output).unwrap();
+    std::fs::remove_file(cancelled).unwrap();
+    std::fs::remove_dir(root.join("Windows")).unwrap();
+    for path in directories.into_iter().rev() {
+        std::fs::remove_dir(path).unwrap();
+    }
+    std::fs::remove_dir(temp).unwrap();
+}
+#[test]
 fn exports_sizes_privacy_formats_and_cancel() {
     let temp = std::env::temp_dir().join(format!("hs-storage-{}", std::process::id()));
     let root = temp.join("Users/PrivateName/Documents");
@@ -53,6 +130,22 @@ fn exports_sizes_privacy_formats_and_cancel() {
     let text = std::fs::read_to_string(&md).unwrap();
     assert!(!text.contains("Отчёт.txt"));
     assert!(text.contains("OBJECT_"));
+    let split = temp.join("split.json");
+    let mut options = Options::safe(root.clone(), Format::Json);
+    options.part_rows = 1;
+    let summary =
+        storage_analysis::export(std::slice::from_ref(&v), &options, &split, &stop, |_, _| {})
+            .unwrap();
+    assert!(summary.parts.len() > 1);
+    let mut exported_objects = 0;
+    for part in &summary.parts {
+        let path = temp.join(part);
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        exported_objects += json["objects"].as_array().unwrap().len();
+        std::fs::remove_file(path).unwrap();
+    }
+    assert_eq!(exported_objects, summary.exported as usize);
     let cancelled = temp.join("cancelled.json");
     let summary = storage_analysis::export(
         &[v],
