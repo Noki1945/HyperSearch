@@ -94,7 +94,17 @@ impl Filters {
             .extension()
             .map(|s| s.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if !self.extensions.is_empty() && !self.extensions.contains(&ext) {
+        if !self.extensions.is_empty()
+            && (index.is_directory(id) || !self.extensions.contains(&ext))
+        {
+            return false;
+        }
+        if index.is_directory(id)
+            && self
+                .category
+                .as_deref()
+                .is_some_and(|c| c != "folders" && c != "all")
+        {
             return false;
         }
         match self.category.as_deref() {
@@ -194,6 +204,59 @@ pub fn rank(index: &SearchIndex, ids: &mut [u32], query: &str, opened: &HashMap<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn relevance_frequency_and_directory_extension_semantics() {
+        let mut volume = crate::benchmark::synthetic(4);
+        for (entry, name) in volume.entries.iter_mut().skip(1).zip([
+            "excel.exe",
+            "excel-two.exe",
+            "my_excel.exe",
+            "notexcel.exe",
+        ]) {
+            entry.name = name.into();
+        }
+        let mut index = SearchIndex::new(vec![volume]);
+        let mut frequencies = HashMap::new();
+        frequencies.insert(index.path(1).unwrap(), 10);
+        let mut ids = vec![3, 2, 0, 1];
+        rank(&index, &mut ids, "excel", &frequencies);
+        assert_eq!(ids, [1, 0, 2, 3]);
+        rank(&index, &mut ids, "excel.exe", &frequencies);
+        assert_eq!(ids[0], 0);
+        index.apply_changes(
+            0,
+            vec![(
+                crate::Entry {
+                    id: 5,
+                    parent: 0,
+                    name: "folder.exe".into(),
+                    directory: true,
+                },
+                0x100,
+            )],
+        );
+        let filters = Filters::parse("ext:exe type:apps");
+        assert_eq!(
+            search(&index, &filters, Mode::Substring, None, None, 100, || false)
+                .ids
+                .len(),
+            4
+        );
+        assert!(
+            search(&index, &filters, Mode::Substring, None, None, 0, || false)
+                .ids
+                .is_empty()
+        );
+        let path = std::env::temp_dir().join(format!("hs-history-{}.json", std::process::id()));
+        let mut history = OpenHistory::default();
+        history.record("first".into(), &path).unwrap();
+        history.record("second".into(), &path).unwrap();
+        history.record("first".into(), &path).unwrap();
+        let history = OpenHistory::load(&path);
+        assert_eq!(history.1, ["first", "second"]);
+        assert_eq!(history.0["first"], 2);
+        std::fs::remove_file(path).unwrap();
+    }
     #[test]
     fn quoted_filter_and_pagination() {
         let f = Filters::parse("отчёт ext:.XLSX,pdf in:\"C:\\Work Files\" rank:on");

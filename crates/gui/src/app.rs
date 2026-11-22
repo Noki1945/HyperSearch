@@ -108,7 +108,7 @@ enum Task {
 }
 enum Event {
     Icons(super::icons::Icons),
-    Freshness(String),
+    Freshness(String, bool),
     Metadata(String, String),
     ExportProgress(u64, u64),
     ExportDone(Box<Result<(PathBuf, hypersearch_engine::storage_analysis::Summary), String>>),
@@ -127,6 +127,7 @@ enum Event {
     },
 }
 struct App {
+    smoke: Option<Smoke>,
     hwnd: HWND,
     tasks: Sender<Task>,
     events: Receiver<Event>,
@@ -147,6 +148,13 @@ struct App {
     plan_root: String,
     export_cancel: Option<Arc<AtomicBool>>,
     icons: std::collections::HashMap<String, i32>,
+}
+struct Smoke {
+    start: Instant,
+    query: Instant,
+    phase: u8,
+    log: Vec<String>,
+    idle_cpu: f64,
 }
 struct CachedPage {
     text: String,
@@ -200,6 +208,34 @@ fn index_path() -> PathBuf {
                 .join("HyperSearch/index.hsi")
         })
 }
+fn date(value: std::io::Result<std::time::SystemTime>) -> String {
+    let Some(seconds) = value
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+    else {
+        return "недоступно".into();
+    };
+    let ticks = seconds
+        .saturating_add(11_644_473_600)
+        .saturating_mul(10_000_000);
+    let file = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn FileTimeToSystemTime(file: *const FILETIME, system: *mut SYSTEMTIME) -> i32;
+    }
+    let mut system: SYSTEMTIME = unsafe { std::mem::zeroed() };
+    if unsafe { FileTimeToSystemTime(&file, &mut system) } == 0 {
+        return "недоступно".into();
+    }
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+        system.wYear, system.wMonth, system.wDay, system.wHour, system.wMinute, system.wSecond
+    )
+}
 fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, window: usize) {
     let (icons_tx, icons_rx) = mpsc::channel::<Vec<String>>();
     let icons_events = tx.clone();
@@ -227,14 +263,23 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                 path = newer;
             }
             let result = match std::fs::symlink_metadata(&path) {
-                Ok(m) => format!(
-                    "{}\r\nЛогический размер: {} байт\r\nИзменён: {:?}\r\nСоздан: {:?}\r\nТолько чтение: {}\r\nФизический размер: не измерен",
-                    path,
-                    m.len(),
-                    m.modified().ok(),
-                    m.created().ok(),
-                    m.permissions().readonly()
-                ),
+                Ok(m) => {
+                    use std::os::windows::fs::MetadataExt;
+                    let size = if m.is_dir() {
+                        "Папка: размер вложений — через анализ хранилища".into()
+                    } else {
+                        format!("Логический размер: {} байт", m.len())
+                    };
+                    format!(
+                        "{}\r\n{}\r\nИзменён: {}\r\nСоздан: {}\r\nАтрибуты: 0x{:X}\r\nТолько чтение: {}\r\nФизический размер: не измерен",
+                        path,
+                        size,
+                        date(m.modified()),
+                        date(m.created()),
+                        m.file_attributes(),
+                        m.permissions().readonly()
+                    )
+                }
                 Err(e) => format!("{}\r\nМетаданные недоступны: {e}", path),
             };
             if metadata_events.send(Event::Metadata(path, result)).is_err() {
@@ -271,15 +316,22 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                     Ok(0) => continue,
                     Ok(count) => {
                         cache = None;
-                        Event::Freshness(format!(
-                            "Фон USN: применено {count} записей без перестроения поисковых таблиц"
-                        ))
+                        Event::Freshness(
+                            format!(
+                                "Фон USN: применено {count} записей без перестроения поисковых таблиц"
+                            ),
+                            true,
+                        )
                     }
                     Err(e) => {
                         monitor_enabled = false;
-                        Event::Freshness(format!(
-                            "Актуальность не подтверждена: {e}. Сохранённый индекс доступен."
-                        ))
+                        cache = None;
+                        Event::Freshness(
+                            format!(
+                                "Актуальность не подтверждена: {e}. Сохранённый индекс доступен."
+                            ),
+                            false,
+                        )
                     }
                 }
             }
@@ -654,10 +706,12 @@ fn show_palette(hwnd: HWND) {
 }
 fn register_shortcut(hwnd: HWND, value: &str) -> Result<(), String> {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
-    unsafe {
-        UnregisterHotKey(hwnd, 1);
-    }
     if value.trim().is_empty() || value.eq_ignore_ascii_case("off") {
+        unsafe {
+            UnregisterHotKey(hwnd, 1);
+            RemovePropW(hwnd, wide("HyperSearch.Hotkey.Key").as_ptr());
+            RemovePropW(hwnd, wide("HyperSearch.Hotkey.Modifiers").as_ptr());
+        }
         return Ok(());
     }
     let mut modifiers = MOD_NOREPEAT;
@@ -679,8 +733,32 @@ fn register_shortcut(hwnd: HWND, value: &str) -> Result<(), String> {
     if modifiers == MOD_NOREPEAT {
         return Err("Добавьте Ctrl, Alt, Shift или Win".into());
     }
+    let previous_key =
+        unsafe { GetPropW(hwnd, wide("HyperSearch.Hotkey.Key").as_ptr()) } as usize as u32;
+    let previous_modifiers =
+        unsafe { GetPropW(hwnd, wide("HyperSearch.Hotkey.Modifiers").as_ptr()) } as usize as u32;
+    unsafe {
+        UnregisterHotKey(hwnd, 1);
+    }
     if unsafe { RegisterHotKey(hwnd, 1, modifiers, key) } == 0 {
+        if previous_key != 0 {
+            unsafe {
+                RegisterHotKey(hwnd, 1, previous_modifiers, previous_key);
+            }
+        }
         return Err("Сочетание занято системой или другой программой".into());
+    }
+    unsafe {
+        SetPropW(
+            hwnd,
+            wide("HyperSearch.Hotkey.Key").as_ptr(),
+            key as usize as _,
+        );
+        SetPropW(
+            hwnd,
+            wide("HyperSearch.Hotkey.Modifiers").as_ptr(),
+            modifiers as usize as _,
+        );
     }
     Ok(())
 }
@@ -698,6 +776,138 @@ fn text(hwnd: HWND) -> String {
     }
 }
 impl App {
+    fn finish_smoke(&mut self, success: bool, detail: &str) {
+        if let Some(smoke) = &mut self.smoke {
+            if success
+                && smoke.phase == 2
+                && let Some(ms) = std::env::var("HYPERSEARCH_UI_IDLE_MS")
+                    .ok()
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .filter(|ms| *ms >= 1000 && *ms <= 60000)
+            {
+                smoke.log.push(format!("{detail}; starting_idle_ms={ms}"));
+                smoke.phase = 4;
+                smoke.query = Instant::now();
+                smoke.idle_cpu = hypersearch_engine::metrics::process()
+                    .map(|m| m.cpu_seconds)
+                    .unwrap_or(0.);
+                unsafe {
+                    SetTimer(self.hwnd, 3, ms, None);
+                }
+                return;
+            }
+            smoke.log.push(format!(
+                "success={success}; {detail}; total_ms={:.3}",
+                smoke.start.elapsed().as_secs_f64() * 1000.
+            ));
+            let output = std::env::var_os("HYPERSEARCH_UI_REPORT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| index_path().with_extension("ui-test.txt"));
+            let saved = std::fs::write(output, smoke.log.join("\n")).is_ok();
+            unsafe {
+                PostQuitMessage(if success && saved { 0 } else { 1 });
+            }
+            smoke.phase = 3;
+        }
+    }
+    fn inspect_smoke(&mut self) {
+        let Some(smoke) = &mut self.smoke else {
+            return;
+        };
+        smoke.log.push(format!(
+            "query_message_to_model_ms={:.3}; rows={}",
+            smoke.query.elapsed().as_secs_f64() * 1000.,
+            self.rows.len()
+        ));
+        let settings = unsafe { GetPropW(self.hwnd, wide("HyperSearch.Settings").as_ptr()) };
+        let checks = unsafe {
+            [
+                (
+                    SendMessageW(control(self.hwnd, SECTIONS), 0x18b, 0, 0) == 7,
+                    "seven settings sections",
+                ),
+                (
+                    GetParent(control(self.hwnd, WDS)) == settings,
+                    "external tool settings owner",
+                ),
+                (
+                    GetParent(control(self.hwnd, EXPORT_DEPTH)) == settings,
+                    "export settings owner",
+                ),
+                (
+                    GetWindowLongW(control(self.hwnd, OUTPUT), GWL_STYLE) as u32 & LVS_OWNERDATA
+                        != 0,
+                    "virtual main list",
+                ),
+                (
+                    GetWindowLongW(control(self.hwnd, OUTPUT), GWL_STYLE) as u32 & LVS_SINGLESEL
+                        == 0,
+                    "multi-selection",
+                ),
+                (!palette(self.hwnd).is_null(), "separate Spotlight window"),
+                (
+                    SendMessageW(control(self.hwnd, OUTPUT), LVM_GETITEMCOUNT, 0, 0)
+                        == self.rows.len() as isize,
+                    "virtual result count",
+                ),
+            ]
+        };
+        for (passed, label) in checks {
+            if !passed {
+                self.finish_smoke(false, label);
+                return;
+            }
+        }
+        let sections = [
+            (0, THEME),
+            (1, SEARCH_HELP),
+            (2, PLAN),
+            (3, EXPORT),
+            (4, HOTKEY),
+            (5, PERF_HELP),
+            (6, ABOUT),
+        ];
+        for &(page, expected) in &sections {
+            unsafe {
+                SendMessageW(control(self.hwnd, SECTIONS), 0x186, page, 0);
+            }
+            layout(self.hwnd, true);
+            for &(_, id) in &sections {
+                let visible = unsafe {
+                    GetWindowLongW(control(self.hwnd, id), GWL_STYLE) as u32 & WS_VISIBLE != 0
+                };
+                if visible != (id == expected) {
+                    self.finish_smoke(false, "settings section visibility mismatch");
+                    return;
+                }
+            }
+        }
+        layout(self.hwnd, false);
+        let look = LOOK.with(|look| look.get());
+        for theme in [
+            super::appearance::Theme::Light,
+            super::appearance::Theme::Dark,
+            super::appearance::Theme::System,
+        ] {
+            let mut test = look;
+            test.theme = theme;
+            test.apply(self.hwnd);
+            test.apply(settings);
+            test.apply(palette(self.hwnd));
+        }
+        look.apply(self.hwnd);
+        look.apply(settings);
+        look.apply(palette(self.hwnd));
+        if let Some(smoke) = &mut self.smoke {
+            smoke.log.push(format!("native_controls=passed; themes_applied=3; dpi={}; monitors={}; windows_visible=false; screen_capture=false",unsafe { GetDpiForWindow(self.hwnd) },unsafe { GetSystemMetrics(SM_CMONITORS) }));
+            smoke.phase = 2;
+        }
+        if let Some(row) = self.rows.first() {
+            let _ = self.tasks.send(Task::Metadata(row.path.clone()));
+        } else {
+            self.finish_smoke(false, "fixture query returned no rows");
+        }
+    }
     fn export(&mut self, compact: bool) {
         use hypersearch_engine::storage_analysis::{self, Format, Options};
         if !self.ready || self.export_cancel.is_some() {
@@ -891,6 +1101,23 @@ impl App {
             }
             SendMessageW(list, WM_SETREDRAW, 1, 0);
             InvalidateRect(list, null(), 1);
+        }
+    }
+    fn sort_loaded(&mut self) {
+        let list = control(self.hwnd, OUTPUT);
+        let column = unsafe { GetPropW(list, wide("HyperSearch.SortColumn").as_ptr()) } as usize;
+        if column == 0 {
+            return;
+        }
+        let descending =
+            unsafe { GetPropW(list, wide("HyperSearch.SortDescending").as_ptr()) } as usize != 0;
+        self.rows.sort_by_cached_key(|r| match column {
+            2 => r.path.to_lowercase(),
+            3 => r.kind.to_lowercase(),
+            _ => r.name.to_lowercase(),
+        });
+        if descending {
+            self.rows.reverse();
         }
     }
     fn selected(&self) -> Option<Row> {
@@ -1098,11 +1325,24 @@ impl App {
                         }
                     }
                 }
-                Event::Freshness(status) => {
+                Event::Freshness(status, changed) => {
                     self.status = status.clone();
                     set(control(self.hwnd, STATUS), &status);
+                    if changed {
+                        self.search(None);
+                    }
                 }
                 Event::Metadata(path, result) => {
+                    if self.smoke.as_ref().is_some_and(|s| s.phase == 2) {
+                        self.finish_smoke(
+                            true,
+                            if result.contains("Метаданные недоступны") {
+                                "asynchronous unavailable-metadata response handled"
+                            } else {
+                                "asynchronous metadata available"
+                            },
+                        );
+                    }
                     if self.selected().is_some_and(|row| row.path == path) {
                         set(control(self.hwnd, DETAILS), &result);
                     }
@@ -1189,13 +1429,25 @@ impl App {
                     }
                     set(
                         self.hwnd,
-                        &format!("HyperSearch beta 0.1 — {count} объектов"),
+                        &format!("HyperSearch 0.2 beta — {count} объектов"),
                     );
                     set(
                         control(self.hwnd, ADDRESS),
                         self.scope.as_deref().unwrap_or("Этот компьютер"),
                     );
                     self.search(None);
+                    if let Some(smoke) = &mut self.smoke
+                        && smoke.phase == 0
+                    {
+                        smoke.log.push(format!(
+                            "application_ready_ms={:.3}; entries={count}",
+                            smoke.start.elapsed().as_secs_f64() * 1000.
+                        ));
+                        smoke.phase = 1;
+                        smoke.query = Instant::now();
+                        set(control(self.hwnd, QUERY), "excel.exe");
+                        self.search(None);
+                    }
                 }
                 Event::Error(e) => {
                     self.ready = false;
@@ -1229,6 +1481,7 @@ impl App {
                         continue;
                     }
                     self.rows.extend(rows);
+                    self.sort_loaded();
                     let keys: Vec<_> = self
                         .rows
                         .iter()
@@ -1240,6 +1493,9 @@ impl App {
                     let _ = self.tasks.send(Task::Icons(keys));
                     self.next = next;
                     self.render_rows();
+                    if self.smoke.as_ref().is_some_and(|s| s.phase == 1) {
+                        self.inspect_smoke();
+                    }
                     set(
                         control(self.hwnd, STATUS),
                         &format!("{status}\r\n{}", self.status),
@@ -1308,7 +1564,8 @@ fn layout(hwnd: HWND, setup: bool) {
         ShowWindow(control(hwnd, 202), SW_HIDE);
         let settings = GetPropW(hwnd, wide("HyperSearch.Settings").as_ptr());
         if !settings.is_null() {
-            ShowWindow(settings, if setup { SW_SHOW } else { SW_HIDE });
+            let smoke = !GetPropW(hwnd, wide("HyperSearch.Smoke").as_ptr()).is_null();
+            ShowWindow(settings, if setup && !smoke { SW_SHOW } else { SW_HIDE });
         }
         let list_top = 138;
         for (id, x, y, cw, ch) in [
@@ -1573,6 +1830,39 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         }
     }
     match msg {
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DWMCOMPOSITIONCHANGED => {
+            let look = LOOK.with(|look| look.get());
+            look.apply(hwnd);
+            let settings = unsafe { GetPropW(hwnd, wide("HyperSearch.Settings").as_ptr()) };
+            if !settings.is_null() {
+                look.apply(settings);
+            }
+            if !palette(hwnd).is_null() {
+                look.apply(palette(hwnd));
+            }
+        }
+        WM_TIMER if w == 3 => {
+            APP.with(|a| { if let Ok(mut a)=a.try_borrow_mut() && let Some(a)=a.as_mut() {
+                if let Some(smoke)=&mut a.smoke {
+                    let wall=smoke.query.elapsed().as_secs_f64();
+                    let cpu=hypersearch_engine::metrics::process().map(|m|m.cpu_seconds-smoke.idle_cpu).unwrap_or(0.);
+                    smoke.log.push(format!("hidden_idle_wall_seconds={wall:.3}; process_cpu_seconds={cpu:.6}; one_core_equivalent_percent={:.4}",cpu/wall*100.));
+                }
+                unsafe { KillTimer(hwnd,3); }
+                a.finish_smoke(true,"hidden idle completed");
+            } });
+            return 0;
+        }
+        WM_TIMER if w == 2 => {
+            APP.with(|a| {
+                if let Ok(mut a) = a.try_borrow_mut()
+                    && let Some(a) = a.as_mut()
+                {
+                    a.finish_smoke(false, "GUI diagnostic timeout");
+                }
+            });
+            return 0;
+        }
         WM_TIMER if w == 1 => {
             APP.with(|a| {
                 if let Ok(a) = a.try_borrow()
@@ -1745,11 +2035,27 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         if let Ok(mut a) = a.try_borrow_mut()
                             && let Some(a) = a.as_mut()
                         {
-                            a.rows.sort_by_cached_key(|r| match column {
-                                1 => r.path.to_lowercase(),
-                                2 => r.kind.to_lowercase(),
-                                _ => r.name.to_lowercase(),
-                            });
+                            let list = control(hwnd, OUTPUT);
+                            unsafe {
+                                let same = GetPropW(list, wide("HyperSearch.SortColumn").as_ptr())
+                                    as usize
+                                    == column as usize + 1;
+                                let descending =
+                                    GetPropW(list, wide("HyperSearch.SortDescending").as_ptr())
+                                        as usize
+                                        != 0;
+                                SetPropW(
+                                    list,
+                                    wide("HyperSearch.SortColumn").as_ptr(),
+                                    (column as usize + 1) as _,
+                                );
+                                SetPropW(
+                                    list,
+                                    wide("HyperSearch.SortDescending").as_ptr(),
+                                    (same && !descending) as usize as _,
+                                );
+                            }
+                            a.sort_loaded();
                             a.render_rows();
                         }
                     });
@@ -1788,7 +2094,16 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let event = (w >> 16) & 0xffff;
                 match (id, event) {
                     (SECTIONS, 1) => layout(hwnd, true),
-                    (EXTENSION, 0x300) | (CATEGORY, 1) | (RANK, 0) => app.search(None),
+                    (RANK, 0) => {
+                        unsafe {
+                            RemovePropW(
+                                control(hwnd, OUTPUT),
+                                wide("HyperSearch.SortColumn").as_ptr(),
+                            );
+                        }
+                        app.search(None);
+                    }
+                    (EXTENSION, 0x300) | (CATEGORY, 1) => app.search(None),
                     (ANIMATIONS, 0) => {
                         let mut a = LOOK.with(|look| look.get());
                         a.animations = !a.animations;
@@ -2120,6 +2435,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
 }
 pub fn run() {
     unsafe {
+        let smoke = std::env::args().any(|arg| arg == "--self-test-ui");
+        let smoke_start = Instant::now();
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let common = INITCOMMONCONTROLSEX {
             dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
@@ -2143,12 +2460,12 @@ pub fn run() {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            wide("HyperSearch beta 0.1").as_ptr(),
+            wide("HyperSearch 0.2 beta").as_ptr(),
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1200*initial_dpi/96,
-            800*initial_dpi/96,
+            1200 * initial_dpi / 96,
+            800 * initial_dpi / 96,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             instance,
@@ -2156,6 +2473,9 @@ pub fn run() {
         );
         if hwnd.is_null() {
             return;
+        }
+        if smoke {
+            SetPropW(hwnd, wide("HyperSearch.Smoke").as_ptr(), 1usize as _);
         }
         super::appearance::Appearance::load(&index_path().with_extension("appearance")).apply(hwnd);
         child(hwnd, "BUTTON", "Тема: System", WS_TABSTOP, THEME);
@@ -2291,12 +2611,15 @@ pub fn run() {
         }
         SendMessageW(sidebar_control, 0x186, 0, 0);
         let mut favorites = Vec::new();
-        if let Some(profile) = std::env::var_os("USERPROFILE") {
-            for name in ["Desktop", "Documents", "Downloads", "Pictures"] {
-                let path = PathBuf::from(&profile).join(name);
-                if path.is_dir() {
-                    favorites.push(path.to_string_lossy().into_owned());
-                }
+        for id in [
+            windows_sys::Win32::UI::Shell::FOLDERID_Profile,
+            windows_sys::Win32::UI::Shell::FOLDERID_Desktop,
+            windows_sys::Win32::UI::Shell::FOLDERID_Documents,
+            windows_sys::Win32::UI::Shell::FOLDERID_Downloads,
+            windows_sys::Win32::UI::Shell::FOLDERID_Pictures,
+        ] {
+            if let Some(path) = super::folders::known(&id) {
+                favorites.push(path.to_string_lossy().into_owned());
             }
         }
         favorites.extend(
@@ -2452,6 +2775,17 @@ pub fn run() {
         let (tx, events) = mpsc::channel();
         let generation = Arc::new(AtomicU64::new(0));
         let mut app = App {
+            smoke: if smoke {
+                Some(Smoke {
+                    start: smoke_start,
+                    query: Instant::now(),
+                    phase: 0,
+                    log: vec![],
+                    idle_cpu: 0.,
+                })
+            } else {
+                None
+            },
             hwnd,
             tasks,
             events,
@@ -2504,8 +2838,8 @@ pub fn run() {
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1040*initial_dpi/96,
-            620*initial_dpi/96,
+            1040 * initial_dpi / 96,
+            620 * initial_dpi / 96,
             hwnd,
             std::ptr::null_mut(),
             instance,
@@ -2627,7 +2961,11 @@ pub fn run() {
         std::thread::spawn(move || worker(rx, tx, generation, window));
         SetTimer(hwnd, 1, 3000, None);
         layout(hwnd, true);
-        ShowWindow(hwnd, SW_SHOW);
+        if !smoke {
+            ShowWindow(hwnd, SW_SHOW);
+        } else {
+            SetTimer(hwnd, 2, 30000, None);
+        }
         SetFocus(control(hwnd, QUERY));
         let mut message: MSG = std::mem::zeroed();
         while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
@@ -2731,6 +3069,9 @@ pub fn run() {
             a.borrow_mut().take();
         });
         windows_sys::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(hwnd, 1);
+        if smoke && message.wParam != 0 {
+            std::process::exit(1);
+        }
     }
 }
 #[cfg(test)]
@@ -2775,6 +3116,7 @@ mod tests {
             let (tasks, requests) = mpsc::channel();
             let (_, events) = mpsc::channel();
             let mut app = App {
+                smoke: None,
                 hwnd: parent,
                 tasks,
                 events,
@@ -2872,6 +3214,34 @@ mod tests {
             APP.with(|cell| {
                 cell.borrow_mut().take();
             });
+            let second = CreateWindowExW(
+                0,
+                wide("STATIC").as_ptr(),
+                wide("hotkey-test").as_ptr(),
+                0,
+                0,
+                0,
+                100,
+                100,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                GetModuleHandleW(null()),
+                null(),
+            );
+            let free = (0..10)
+                .map(|n| format!("Ctrl+Alt+Shift+{n}"))
+                .find(|key| register_shortcut(parent, key).is_ok())
+                .expect("no free hotkey among test candidates");
+            assert!(register_shortcut(second, &free).is_err());
+            assert!(register_shortcut(parent, "invalid shortcut").is_err());
+            assert!(
+                register_shortcut(second, &free).is_err(),
+                "invalid input must preserve previous registration"
+            );
+            register_shortcut(parent, "off").unwrap();
+            register_shortcut(second, &free).unwrap();
+            register_shortcut(second, "off").unwrap();
+            DestroyWindow(second);
             DestroyWindow(parent);
         }
     }

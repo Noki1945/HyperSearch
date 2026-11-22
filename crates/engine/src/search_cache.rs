@@ -200,10 +200,13 @@ impl Reader {
 impl SearchIndex {
     /// Cache failure never prevents searching; it falls back to a fresh build.
     pub fn with_disk_cache(
-        volumes: Vec<Volume>,
+        mut volumes: Vec<Volume>,
         mode: MemoryMode,
         path: &Path,
     ) -> (Self, CacheReport) {
+        for volume in &mut volumes {
+            volume.entries.shrink_to_fit();
+        }
         let signature = fingerprint(&volumes);
         let loaded = Self::read_cache(&volumes, mode, path, signature);
         match loaded {

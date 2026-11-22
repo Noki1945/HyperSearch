@@ -74,6 +74,9 @@ fn registry_path(
 }
 pub fn installed() -> Option<PathBuf> {
     use windows_sys::Win32::System::Registry::*;
+    if let Some(path) = discover(&state_file(), []) {
+        return Some(path);
+    }
     let mut candidates = Vec::new();
     for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
         if let Some(p) = registry_path(
@@ -91,6 +94,61 @@ pub fn installed() -> Option<PathBuf> {
                 candidates.push(p.join("windirstat.exe"));
             }
         }
+        let uninstall = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
+        let key: Vec<_> = uninstall.encode_utf16().chain(Some(0)).collect();
+        for view in [KEY_WOW64_64KEY, KEY_WOW64_32KEY] {
+            let mut handle = std::ptr::null_mut();
+            if unsafe { RegOpenKeyExW(root, key.as_ptr(), 0, KEY_READ | view, &mut handle) } != 0 {
+                continue;
+            }
+            for i in 0..4096 {
+                let mut name = [0u16; 512];
+                let mut len = name.len() as u32;
+                let status = unsafe {
+                    RegEnumKeyExW(
+                        handle,
+                        i,
+                        name.as_mut_ptr(),
+                        &mut len,
+                        std::ptr::null(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    )
+                };
+                if status == 259 {
+                    break;
+                }
+                if status != 0 {
+                    continue;
+                }
+                let subkey = format!(
+                    "{uninstall}\\{}",
+                    String::from_utf16_lossy(&name[..len as usize])
+                );
+                if !registry_path(root, &subkey, "DisplayName")
+                    .is_some_and(|s| s.to_string_lossy().to_lowercase().contains("windirstat"))
+                {
+                    continue;
+                }
+                if let Some(path) = registry_path(root, &subkey, "InstallLocation") {
+                    candidates.push(path.join("windirstat.exe"));
+                }
+                if let Some(path) = registry_path(root, &subkey, "DisplayIcon") {
+                    let text = path.to_string_lossy();
+                    let text = text
+                        .rsplit_once(',')
+                        .filter(|(_, suffix)| suffix.trim().parse::<i32>().is_ok())
+                        .map(|(path, _)| path)
+                        .unwrap_or(&text)
+                        .trim_matches('"');
+                    candidates.push(PathBuf::from(text));
+                }
+            }
+            unsafe {
+                RegCloseKey(handle);
+            }
+        }
     }
     for var in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
         if let Some(p) = std::env::var_os(var) {
@@ -104,8 +162,7 @@ pub fn installed() -> Option<PathBuf> {
         candidates.push(p.join("Microsoft/WinGet/Links/windirstat.exe"));
         candidates.push(p.join("HyperSearch/Tools/WinDirStat/windirstat.exe"));
     }
-    if let Some(p) = std::env::var_os("USERPROFILE") {
-        let downloads = PathBuf::from(p).join("Downloads");
+    if let Some(downloads) = super::folders::downloads() {
         candidates.push(downloads.join("windirstat.exe"));
         candidates.push(downloads.join("WinDirStat/windirstat.exe"));
         // Bounded discovery of extracted official portable packages; never a recursive scan.
@@ -128,7 +185,7 @@ pub fn installed() -> Option<PathBuf> {
 /// Remembers packages opened through settings. Never executes an unverified installer.
 pub fn downloaded() -> Option<PathBuf> {
     let state = state_file().with_file_name("windirstat.download");
-    let downloads = PathBuf::from(std::env::var_os("USERPROFILE")?).join("Downloads");
+    let downloads = super::folders::downloads()?;
     downloaded_from(&state, &downloads)
 }
 fn downloaded_from(state: &Path, downloads: &Path) -> Option<PathBuf> {

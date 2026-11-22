@@ -515,13 +515,25 @@ impl SearchIndex {
         result
     }
     /// Mutates only changed names/postings. Stable IDs survive rename and deletion.
-    pub fn apply_changes(&mut self, volume: usize, changes: Vec<(crate::Entry, u32)>) {
+    pub fn apply_changes(&mut self, volume: usize, changes: Vec<(crate::Entry, u32)>) -> usize {
+        let mut updated = 0;
         for (entry, reason) in changes {
             if reason & 0x1000 != 0 && reason & 0x2000 == 0 {
                 continue;
             }
             let existing = self.lookups[volume].get(&entry.id).copied();
             let deleted = reason & 0x200 != 0;
+            if let Some(ei) = existing
+                && !deleted
+            {
+                let old = &self.volumes[volume].entries[ei];
+                if old.name == entry.name
+                    && old.parent == entry.parent
+                    && old.directory == entry.directory
+                {
+                    continue;
+                }
+            }
             let ei = match existing {
                 Some(ei) => ei,
                 None if deleted => continue,
@@ -533,6 +545,7 @@ impl SearchIndex {
                     ei
                 }
             };
+            updated += 1;
             if entry.id == entry.parent {
                 self.volumes[volume].entries[ei] = entry;
                 continue;
@@ -613,5 +626,6 @@ impl SearchIndex {
                 self.lookups[volume].remove(&self.volumes[volume].entries[ei].id);
             }
         }
+        updated
     }
 }

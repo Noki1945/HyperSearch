@@ -238,7 +238,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 );
             } else {
                 println!(
-                    "HyperSearch v0.1 — {} objects; snapshot session; :quit to exit",
+                    "HyperSearch {} — {} objects; snapshot session; :quit to exit",
+                    env!("CARGO_PKG_VERSION"),
                     index.len()
                 );
                 let mut line = String::new();
@@ -253,9 +254,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        "help" | "--help" | "-h" => println!(
-            "hypersearch index|rebuild [--root C:\\] [--walk]\nhypersearch search QUERY [--mode exact|prefix|substring] [--ext xlsx] [--path DIR] [--limit 100] [--after ID] [--memory economy|balanced|fast] [--budget-mb N]\nhypersearch estimate [--budget-mb N]\nhypersearch stats|verify|watch\nhypersearch benchmark [--size 100000|1000000|5000000|10000000] [--iterations 100]\nHYPERSEARCH_INDEX overrides the application index path."
-        ),
+        "help" | "--help" | "-h" => {
+            println!(
+                "hypersearch audit [--memory economy|balanced|fast] [--iterations 100]\nhypersearch export --root DIR --output FILE [--format json|csv|markdown] [--compact] [--full-paths] [--neutral-names] [--depth N] [--min-bytes N] [--exclude 'DIR;DIR'] [--part-rows N] [--confirm]"
+            );
+            println!(
+                "hypersearch index|rebuild [--root C:\\] [--walk]\nhypersearch search QUERY [--mode exact|prefix|substring] [--ext xlsx] [--path DIR] [--limit 100] [--after ID] [--memory economy|balanced|fast] [--budget-mb N]\nhypersearch estimate [--budget-mb N]\nhypersearch stats|verify|watch\nhypersearch benchmark [--size 100000|1000000|5000000|10000000] [--iterations 100]\nHYPERSEARCH_INDEX overrides the application index path."
+            );
+        }
         _ => return Err(format!("unknown command: {cmd}").into()),
     }
     Ok(())

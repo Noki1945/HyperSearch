@@ -92,8 +92,7 @@ pub fn refresh(index: &mut crate::search::SearchIndex) -> io::Result<usize> {
                     "hard-link change: rebuild with directory walk required",
                 ));
             }
-            count += changes.len();
-            index.apply_changes(vi, changes);
+            count += index.apply_changes(vi, changes);
             index.volumes[vi].next_usn = next;
         }
         Ok(count)

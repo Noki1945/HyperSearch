@@ -130,7 +130,7 @@ pub fn load(path: &Path) -> io::Result<Vec<Volume>> {
         if count > r.0.len() as u64 / 32 {
             return Err(bad());
         }
-        let mut entries = Vec::new();
+        let mut entries = Vec::with_capacity(count as usize);
         for _ in 0..count {
             let id = r.number()?;
             let parent = r.number()?;

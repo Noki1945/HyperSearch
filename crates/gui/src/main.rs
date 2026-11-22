@@ -4,6 +4,8 @@ mod app;
 #[cfg(windows)]
 mod appearance;
 #[cfg(windows)]
+mod folders;
+#[cfg(windows)]
 mod icons;
 #[cfg(windows)]
 mod settings;
