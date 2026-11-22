@@ -696,6 +696,17 @@ fn show_palette(hwnd: HWND) {
         let mut info: MONITORINFO = std::mem::zeroed();
         info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
         GetMonitorInfoW(monitor, &mut info);
+        // Move the hidden palette onto the target monitor first, so its effective
+        // DPI has changed before calculating the final centered rectangle.
+        SetWindowPos(
+            p,
+            std::ptr::null_mut(),
+            info.rcWork.left,
+            info.rcWork.top,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
         let bounds = palette_bounds(&info.rcWork, GetDpiForWindow(p));
         SetWindowPos(
             p,
@@ -2008,7 +2019,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 a.try_borrow()
                     .ok()
                     .and_then(|a| a.as_ref().map(|a| a.setup))
-                    .unwrap_or(true)
+                    .unwrap_or(false)
             });
             layout(hwnd, setup);
             return 0;
