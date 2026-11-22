@@ -2575,7 +2575,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                                     control(hwnd, SIDEBAR),
                                     0x180,
                                     0,
-                                    wide(&path).as_ptr() as isize,
+                                    wide(&view_model::folder_name(&path)).as_ptr() as isize,
                                 );
                             }
                             app.sidebar.push(Some(path));
@@ -2842,26 +2842,38 @@ pub fn run() {
         }
         SendMessageW(sidebar_control, 0x186, 0, 0);
         let mut favorites = Vec::new();
-        for id in [
-            windows_sys::Win32::UI::Shell::FOLDERID_Profile,
-            windows_sys::Win32::UI::Shell::FOLDERID_Desktop,
-            windows_sys::Win32::UI::Shell::FOLDERID_Documents,
-            windows_sys::Win32::UI::Shell::FOLDERID_Downloads,
-            windows_sys::Win32::UI::Shell::FOLDERID_Pictures,
+        for (id, label) in [
+            (windows_sys::Win32::UI::Shell::FOLDERID_Profile, "Главная"),
+            (
+                windows_sys::Win32::UI::Shell::FOLDERID_Desktop,
+                "Рабочий стол",
+            ),
+            (
+                windows_sys::Win32::UI::Shell::FOLDERID_Documents,
+                "Документы",
+            ),
+            (
+                windows_sys::Win32::UI::Shell::FOLDERID_Downloads,
+                "Загрузки",
+            ),
+            (
+                windows_sys::Win32::UI::Shell::FOLDERID_Pictures,
+                "Изображения",
+            ),
         ] {
             if let Some(path) = super::folders::known(&id) {
-                favorites.push(path.to_string_lossy().into_owned());
+                favorites.push((path.to_string_lossy().into_owned(), label.to_string()));
             }
         }
         favorites.extend(
             std::fs::read_to_string(index_path().with_extension("pins"))
                 .unwrap_or_default()
                 .lines()
-                .map(str::to_string),
+                .map(|path| (path.to_string(), view_model::folder_name(path))),
         );
-        for path in favorites {
+        for (path, label) in favorites {
             if !sidebar.contains(&Some(path.clone())) {
-                SendMessageW(sidebar_control, 0x180, 0, wide(&path).as_ptr() as isize);
+                SendMessageW(sidebar_control, 0x180, 0, wide(&label).as_ptr() as isize);
                 sidebar.push(Some(path));
             }
         }

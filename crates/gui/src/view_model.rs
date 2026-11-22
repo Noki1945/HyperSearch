@@ -35,6 +35,12 @@ pub fn parent(path: &str) -> Option<String> {
         .filter(|p| !p.as_os_str().is_empty())
         .map(|p| p.to_string_lossy().into_owned())
 }
+pub fn folder_name(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.into())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
