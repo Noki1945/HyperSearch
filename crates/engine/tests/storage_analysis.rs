@@ -111,6 +111,34 @@ fn exports_sizes_privacy_formats_and_cancel() {
         storage_analysis::export(std::slice::from_ref(&v), &o, &csv, &stop, |_, _| {}).unwrap();
     assert_eq!(summary.totals.logical_bytes, 100);
     assert!(summary.excluded > 0);
+    let mut stale = v.clone();
+    let parent = stale.entries.iter().find(|e| e.id == e.parent).unwrap().id;
+    stale.entries.push(hypersearch_engine::Entry {
+        id: 1000001,
+        parent,
+        name: "PrivateMissing".into(),
+        directory: true,
+    });
+    stale.entries.push(hypersearch_engine::Entry {
+        id: 1000002,
+        parent: 1000001,
+        name: "secret.txt".into(),
+        directory: false,
+    });
+    let stale_out = temp.join("stale-excluded.json");
+    let mut stale_options = Options::safe(root.clone(), Format::Json);
+    stale_options
+        .exclusions
+        .push(root.join("nested/../PrivateMissing"));
+    let summary =
+        storage_analysis::export(&[stale], &stale_options, &stale_out, &stop, |_, _| {}).unwrap();
+    assert_eq!(summary.excluded, 2);
+    assert!(
+        !std::fs::read_to_string(&stale_out)
+            .unwrap()
+            .contains("PrivateMissing")
+    );
+    std::fs::remove_file(stale_out).unwrap();
     let csv_formula = temp.join("formula.csv");
     o.exclusions.clear();
     storage_analysis::export(std::slice::from_ref(&v), &o, &csv_formula, &stop, |_, _| {}).unwrap();
