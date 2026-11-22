@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "embed-manifest"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba92c8f4591bf29f89716b45e5f5f56577adbb81426e5620c6e994da7c88bb7a"
+
+[[package]]
 name = "hypersearch"
 version = "0.2.0-beta.1"
 dependencies = [
@@ -21,6 +27,7 @@ dependencies = [
 name = "hypersearch-gui"
 version = "0.2.0-beta.1"
 dependencies = [
+ "embed-manifest",
  "hypersearch-engine",
  "serde_json",
  "windows-sys",

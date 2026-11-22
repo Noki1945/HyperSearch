@@ -926,6 +926,24 @@ impl App {
                 return;
             }
         }
+        for view in [LV_VIEW_DETAILS, LV_VIEW_LIST, LV_VIEW_ICON] {
+            let list = control(self.hwnd, OUTPUT);
+            unsafe {
+                SendMessageW(list, LVM_SETVIEW, view as usize, 0);
+            }
+            if unsafe { SendMessageW(list, LVM_GETVIEW, 0, 0) } as u32 != view {
+                self.finish_smoke(false, "native view mode switch failed");
+                return;
+            }
+        }
+        unsafe {
+            SendMessageW(
+                control(self.hwnd, OUTPUT),
+                LVM_SETVIEW,
+                LV_VIEW_DETAILS as usize,
+                0,
+            );
+        }
         let sections = [
             (0, THEME),
             (1, SEARCH_HELP),
@@ -1380,7 +1398,10 @@ impl App {
         while let Ok(event) = self.events.try_recv() {
             match event {
                 Event::Downloaded(result) => {
-                    self.download_cancel = None;
+                    let cancelled = self
+                        .download_cancel
+                        .take()
+                        .is_some_and(|flag| flag.load(Ordering::Relaxed));
                     if self.closing {
                         if self.export_cancel.is_none() {
                             unsafe {
@@ -1390,6 +1411,13 @@ impl App {
                         continue;
                     }
                     self.refresh_windirstat();
+                    if cancelled {
+                        set(
+                            control(self.hwnd, STATUS),
+                            "Загрузка отменена. Уже проверенный пакет, если он готов, сохранён без установки.",
+                        );
+                        continue;
+                    }
                     match result {
                         Ok(package) => {
                             let prompt = format!(

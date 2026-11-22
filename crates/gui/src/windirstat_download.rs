@@ -36,6 +36,8 @@ if ((Test-Path -LiteralPath $file) -and (Test-Path -LiteralPath $record)) {
     $saved=Get-Content -LiteralPath $record -Raw -Encoding UTF8 | ConvertFrom-Json
     $hash=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
     if (($saved.source -eq $source) -and ($saved.sha256 -match '^[0-9a-f]{64}$') -and ($hash -eq $saved.sha256)) {
+      $saved.source=$source
+      $saved.path=$file
       $saved.cache_hit=$true
       $saved | ConvertTo-Json -Compress
       exit 0
