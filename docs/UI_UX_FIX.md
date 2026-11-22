@@ -46,3 +46,15 @@ Open dist/0.2-ux/HyperSearch.exe. Check Light/Dark/System themes, filters, toolt
 USN/MFT access is the specific privileged operation. A future read-only helper could enumerate a user-selected volume and return validated bounded records to the unelevated GUI. It needs a versioned protocol, restrictive named-pipe ACLs, server/client identity checks, strict root authorization and cancellation. This correction retains explicit Windows Run-as as an option and never silently elevates the GUI or starts a privileged service. No helper is represented as implemented.
 
 No new GitHub release is published by this correction. The previously published beta remains unchanged.
+
+## Screen-verified reference layout update - 2026-11-22
+
+The user subsequently authorized screen capture. Actual screenshots were inspected through Computer Use in this chat: light/system and dark appearance, search results, selected-file metadata, settings appearance/storage, expanded filters, a reduced window, empty results and Spotlight. This supersedes the earlier screen-capture restriction for this verification.
+
+Screen inspection found and corrected a blank Spotlight: its children were created after the initial WM_SIZE and retained zero bounds if the outer size did not change. Opening now explicitly lays out its controls; the native diagnostic rejects zero child bounds. Additional fixes: no-match text below the header, selection colors based on actual LVIS_SELECTED state, complete resize invalidation, shorter toolbar labels and removal of unnecessary settings scrollbars.
+
+The user then supplied a blue glass-inspired reference. The implemented layout uses a blue palette/gradient, rounded input/surface framing, compact category buttons wired to existing filters, a narrower sidebar, name/type/size/date table and a selected-item card with a system type icon plus open/location/copy actions. Full paths remain in the card and Spotlight. Metadata for bounded pages (at most 100 per result event) is loaded on the metadata worker; unknown directory sizes are not fabricated. No search engine rewrite or unbounded global-sort materialization was added.
+
+The final build was opened and inspected on the real Program Files folder with the Common Files row selected. Screenshots in this chat show the running application, not a generated mockup. There is no optical glass refraction shader; native-control details still differ from the reference. Physical mixed-DPI/multi-monitor testing remains unverified. No release was published.
+
+Local verification: 39 workspace tests, formatting, Clippy with warnings denied and Windows x64 release build passed. Current executable: dist/0.2-ux/HyperSearch.exe.

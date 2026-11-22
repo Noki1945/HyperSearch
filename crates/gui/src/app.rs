@@ -96,6 +96,9 @@ pub(super) const FILTERS: usize = 168;
 pub(super) const SORT: usize = 169;
 pub(super) const EMPTY: usize = 170;
 pub(super) const EXPORT_PRIORITY: usize = 171;
+pub(super) const CATEGORY_CHIPS: usize = 180;
+pub(super) const PREVIEW_TITLE: usize = 187;
+pub(super) const PREVIEW_ICON: usize = 188;
 enum Task {
     Download(Arc<AtomicBool>),
     Icons(Vec<String>),
@@ -732,6 +735,9 @@ fn copy_text(hwnd: HWND, value: &str) -> Result<(), String> {
 fn show_palette(hwnd: HWND) {
     unsafe {
         let p = palette(hwnd);
+        // The initial WM_SIZE precedes child creation; an unchanged outer size
+        // does not generate another one when the palette is first shown.
+        SendMessageW(p, WM_SIZE, 0, 0);
         let active = GetForegroundWindow();
         let monitor = MonitorFromWindow(
             if active.is_null() { hwnd } else { active },
@@ -1664,6 +1670,33 @@ impl App {
                     self.metadata.insert(path.clone(), result.clone());
                     if self.selected().is_some_and(|row| row.path == path) {
                         set(control(self.hwnd, DETAILS), &result.text);
+                        if let Some(row) = self.selected() {
+                            set(control(self.hwnd, PREVIEW_TITLE), &row.name);
+                            if let Some(&icon) =
+                                self.icons.get(&super::icons::key(&row.name, row.directory))
+                            {
+                                unsafe {
+                                    let images = SendMessageW(
+                                        control(self.hwnd, OUTPUT),
+                                        LVM_GETIMAGELIST,
+                                        LVSIL_NORMAL as usize,
+                                        0,
+                                    );
+                                    let icon = ImageList_GetIcon(images as _, icon, ILD_NORMAL);
+                                    if !icon.is_null() {
+                                        let old = SendMessageW(
+                                            control(self.hwnd, PREVIEW_ICON),
+                                            0x170,
+                                            icon as usize,
+                                            0,
+                                        );
+                                        if old != 0 {
+                                            DestroyIcon(old as _);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 Event::ExportProgress(p) => {
@@ -1848,6 +1881,8 @@ impl App {
                     if generation != self.generation.load(Ordering::Relaxed) {
                         continue;
                     }
+                    let metadata_paths: Vec<_> =
+                        rows.iter().take(100).map(|r| r.path.clone()).collect();
                     self.rows.extend(rows);
                     self.last_search = status.clone();
                     super::status::STATUS.with(|s| {
@@ -1889,6 +1924,9 @@ impl App {
                     let _ = self.tasks.send(Task::Icons(keys));
                     self.next = next;
                     self.render_rows();
+                    if !metadata_paths.is_empty() {
+                        let _ = self.tasks.send(Task::MetadataPage(metadata_paths));
+                    }
                     if self.smoke.as_ref().is_some_and(|s| s.phase == 1) {
                         self.inspect_smoke();
                     }
@@ -1907,7 +1945,7 @@ impl App {
 fn child(parent: HWND, class: &str, title: &str, style: u32, id: usize) -> HWND {
     unsafe {
         let h = CreateWindowExW(
-            if class == "EDIT" { WS_EX_CLIENTEDGE } else { 0 },
+            0,
             wide(class).as_ptr(),
             wide(title).as_ptr(),
             WS_CHILD | WS_VISIBLE | style,
@@ -1994,9 +2032,29 @@ fn layout(hwnd: HWND, setup: bool) {
                 },
             );
         }
-        for id in [OPEN, LOCATION, COPY, PIN, GO, LOAD, 205] {
+        for id in [PIN, GO, LOAD, 205] {
             ShowWindow(control(hwnd, id), SW_HIDE);
         }
+        for id in [OPEN, LOCATION, COPY, PREVIEW_TITLE, PREVIEW_ICON] {
+            ShowWindow(
+                control(hwnd, id),
+                if main.details { SW_SHOW } else { SW_HIDE },
+            );
+        }
+        for i in 0..7 {
+            ShowWindow(
+                control(hwnd, CATEGORY_CHIPS + i),
+                if w >= 1000 { SW_SHOW } else { SW_HIDE },
+            );
+        }
+        ShowWindow(
+            control(hwnd, SPOTLIGHT),
+            if main.controls.iter().any(|(id, _)| *id == SPOTLIGHT) {
+                SW_SHOW
+            } else {
+                SW_HIDE
+            },
+        );
         EnableWindow(control(hwnd, INFO), (w >= 850) as i32);
         let meta_columns = !GetPropW(
             control(hwnd, OUTPUT),
@@ -2011,7 +2069,7 @@ fn layout(hwnd: HWND, setup: bool) {
                 .unwrap()
                 .1
                 .w;
-            for (i, percent) in [27, 27, 13, 13, 20].iter().enumerate() {
+            for (i, percent) in [44, 0, 16, 15, 25].iter().enumerate() {
                 SendMessageW(
                     control(hwnd, OUTPUT),
                     LVM_SETCOLUMNWIDTH,
@@ -2057,14 +2115,18 @@ fn layout(hwnd: HWND, setup: bool) {
             GetClientRect(settings, &mut rect);
             let d = GetDpiForWindow(settings).max(96) as i32;
             for (bar, size, virtual_size) in [
-                (SB_HORZ, rect.right, 1020 * d / 96),
-                (SB_VERT, rect.bottom, 620 * d / 96),
+                (
+                    SB_HORZ,
+                    rect.right,
+                    (980 * d / 96).max(rect.right - 20 * d / 96),
+                ),
+                (SB_VERT, rect.bottom, 600 * d / 96),
             ] {
                 let info = SCROLLINFO {
                     cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
                     fMask: SIF_RANGE | SIF_PAGE,
                     nMin: 0,
-                    nMax: virtual_size,
+                    nMax: virtual_size - 1,
                     nPage: size.max(0) as u32,
                     ..std::mem::zeroed()
                 };
@@ -2212,10 +2274,25 @@ fn layout(hwnd: HWND, setup: bool) {
             };
             EnumChildWindows(settings, Some(offset_child), &offset as *const _ as isize);
         }
+        RedrawWindow(
+            hwnd,
+            null(),
+            std::ptr::null_mut(),
+            RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
+        );
     }
 }
 fn measure_controls(hwnd: HWND) -> Result<String, String> {
     unsafe {
+        let popup = palette(hwnd);
+        SendMessageW(popup, WM_SIZE, 0, 0);
+        for id in [QUERY, OUTPUT, LOCATION] {
+            let mut r: RECT = std::mem::zeroed();
+            GetWindowRect(GetDlgItem(popup, id as i32), &mut r);
+            if r.right <= r.left || r.bottom <= r.top {
+                return Err(format!("Spotlight control {id} has zero bounds"));
+            }
+        }
         let mut original: RECT = std::mem::zeroed();
         GetWindowRect(hwnd, &mut original);
         let mut checks = 0;
@@ -2662,7 +2739,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                                         .get(&row.path)
                                         .and_then(|m| m.size)
                                         .map(|n| format!("{} B", n))
-                                        .unwrap_or_default();
+                                        .unwrap_or_else(|| "—".into());
                                     &extra
                                 }
                                 4 => {
@@ -2770,6 +2847,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let id = w & 0xffff;
                 let event = (w >> 16) & 0xffff;
                 match (id, event) {
+                    (180..=186,0)=>{unsafe {SendMessageW(control(hwnd,CATEGORY),0x14e,id-CATEGORY_CHIPS,0);}app.search(None);},
                     (FILTERS,0) => {unsafe {let key=wide("HyperSearch.Filters");if GetPropW(hwnd,key.as_ptr()).is_null(){SetPropW(hwnd,key.as_ptr(),1usize as _);}else{RemovePropW(hwnd,key.as_ptr());}}layout(hwnd,app.setup);},
                     (STATUS,0) => {
                         let details=super::status::STATUS.with(|s|s.borrow().details());
@@ -2787,7 +2865,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                             app.sort_loaded();app.render_rows();
                             if id==5004 || id==5005 {let _=app.tasks.send(Task::MetadataPage(app.rows.iter().take(500).map(|r|r.path.clone()).collect()));}
                         }
-                        set(control(hwnd,SORT),"Сорт.: страница");
+                        set(control(hwnd,SORT),"Порядок");
                         set(control(hwnd,STATUS),"Сортировка загруженных страниц. Для размера/даты метаданные читаются асинхронно (до 500 строк); неизвестные значения в конце. Глобальная сортировка не включена.");
                     },
                     (INFO, 0) => {
@@ -3308,7 +3386,7 @@ pub fn run() {
             SendMessageW(categories, 0x143, 0, wide(label).as_ptr() as isize);
         }
         SendMessageW(categories, 0x14e, 0, 0);
-        child(hwnd, "BUTTON", "По релевантности", WS_TABSTOP | 3, RANK);
+        child(hwnd, "BUTTON", "Релевантность", WS_TABSTOP | 3, RANK);
         child(hwnd, "STATIC", "Каталог:", 0, 201);
         let root = "*".to_string();
         child(hwnd, "EDIT", &root, WS_TABSTOP | 0x80, ROOT);
@@ -3569,6 +3647,22 @@ pub fn run() {
         child(hwnd, "STATIC", "Индекс не загружен", 1, EMPTY);
         child(hwnd, "BUTTON", "≡", WS_TABSTOP, FILTERS);
         child(hwnd, "BUTTON", "Сортировка", WS_TABSTOP, SORT);
+        child(hwnd, "STATIC", "Сведения", 0x4000, PREVIEW_TITLE);
+        child(hwnd, "STATIC", "", 3, PREVIEW_ICON);
+        for (i, label) in [
+            "Все",
+            "Приложения",
+            "Документы",
+            "Изображения",
+            "Видео",
+            "Аудио",
+            "Папки",
+        ]
+        .iter()
+        .enumerate()
+        {
+            child(hwnd, "BUTTON", label, WS_TABSTOP, CATEGORY_CHIPS + i);
+        }
         child(
             hwnd,
             "BUTTON",
@@ -3788,9 +3882,9 @@ pub fn run() {
             (UP, "↑"),
             (SETTINGS, "⚙"),
             (INFO, "ⓘ"),
-            (SPOTLIGHT, "Быстрый поиск"),
+            (SPOTLIGHT, "Spotlight"),
             (VIEW, "Вид"),
-            (SORT, "Сорт.: страницы"),
+            (SORT, "Порядок"),
         ] {
             set(control(hwnd, id), label);
         }

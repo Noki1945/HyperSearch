@@ -119,6 +119,10 @@ impl Appearance {
         };
         unsafe {
             DwmSetWindowAttribute(hwnd, 20, (&dark as *const u32).cast(), 4);
+            if !palette.high_contrast {
+                DwmSetWindowAttribute(hwnd, 35, (&palette.window as *const u32).cast(), 4);
+                DwmSetWindowAttribute(hwnd, 36, (&palette.text as *const u32).cast(), 4);
+            }
             DwmSetWindowAttribute(hwnd, 33, (&rounded as *const u32).cast(), 4);
             DwmSetWindowAttribute(hwnd, 38, (&backdrop as *const u32).cast(), 4);
             let margin = 0; // GDI controls always paint onto opaque client surfaces.

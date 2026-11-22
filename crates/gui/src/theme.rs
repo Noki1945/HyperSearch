@@ -32,13 +32,13 @@ const fn rgb(r: u32, g: u32, b: u32) -> u32 {
 impl Palette {
     pub const fn light() -> Self {
         Self {
-            window: rgb(243, 245, 249),
-            surface: rgb(255, 255, 255),
-            glass: rgb(232, 237, 245),
+            window: rgb(215, 232, 250),
+            surface: rgb(244, 248, 255),
+            glass: rgb(223, 236, 252),
             text: rgb(25, 34, 48),
             secondary: rgb(76, 88, 106),
             disabled: rgb(102, 112, 125),
-            border: rgb(182, 194, 210),
+            border: rgb(170, 191, 219),
             accent: rgb(0, 83, 173),
             hover: rgb(223, 233, 247),
             selected: rgb(205, 225, 252),
@@ -255,7 +255,7 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                 );
                 let bg = if msg == WM_CTLCOLOREDIT
                     || msg == WM_CTLCOLORLISTBOX
-                    || matches!(GetDlgCtrlID(l as HWND), 143 | 170)
+                    || matches!(GetDlgCtrlID(l as HWND), 143 | 170 | 187 | 188)
                 {
                     p.surface
                 } else {
@@ -279,7 +279,27 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                 let dc = BeginPaint(hwnd, &mut ps);
                 SetDCBrushColor(dc, p.window);
                 FillRect(dc, &ps.rcPaint, GetStockObject(DC_BRUSH) as _);
-                for id in [107, 115, 143, 146] {
+                if !p.high_contrast {
+                    let mut full: RECT = std::mem::zeroed();
+                    GetClientRect(hwnd, &mut full);
+                    for band in 0..32 {
+                        let mut color = 0;
+                        for shift in [0, 8, 16] {
+                            let a = (p.window >> shift) & 255;
+                            let b = (p.glass >> shift) & 255;
+                            color |= ((a * (32 - band) + b * band) / 32) << shift;
+                        }
+                        let r = RECT {
+                            left: 0,
+                            right: full.right,
+                            top: full.bottom * band as i32 / 32,
+                            bottom: full.bottom * (band + 1) as i32 / 32,
+                        };
+                        SetDCBrushColor(dc, color);
+                        FillRect(dc, &r, GetStockObject(DC_BRUSH) as _);
+                    }
+                }
+                for id in [107, 115, 143, 146, 104, 116] {
                     let child = GetDlgItem(hwnd, id);
                     if child.is_null() || IsWindowVisible(child) == 0 {
                         continue;
@@ -287,6 +307,10 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                     let mut r = std::mem::zeroed();
                     GetWindowRect(child, &mut r);
                     MapWindowPoints(std::ptr::null_mut(), hwnd, (&mut r as *mut RECT).cast(), 2);
+                    if id == 143 {
+                        r.top -= 56;
+                        r.bottom += 132;
+                    }
                     r.left -= 5;
                     r.top -= 5;
                     r.right += 5;
@@ -300,7 +324,7 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                             p.surface
                         },
                         p.border,
-                        12,
+                        22,
                     );
                 }
                 EndPaint(hwnd, &ps);
@@ -320,10 +344,20 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                     let disabled =
                         d.uItemState & CDIS_DISABLED != 0 || IsWindowEnabled(d.hdr.hwndFrom) == 0;
                     let hot = d.uItemState & (CDIS_HOT | CDIS_SELECTED) != 0;
+                    let id = GetDlgCtrlID(d.hdr.hwndFrom);
+                    let active = (180..=186).contains(&id)
+                        && SendMessageW(GetDlgItem(GetParent(d.hdr.hwndFrom), 152), 0x147, 0, 0)
+                            == (id - 180) as isize;
                     rounded(
                         d.hdc,
                         &d.rc,
-                        if hot { p.hover } else { p.surface },
+                        if active {
+                            p.selected
+                        } else if hot {
+                            p.hover
+                        } else {
+                            p.surface
+                        },
                         if hot { p.accent } else { p.border },
                         10,
                     );
@@ -393,16 +427,19 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                     }
                     if d.dwDrawStage == CDDS_ITEMPREPAINT {
                         let d = &mut *(l as *mut NMLVCUSTOMDRAW);
-                        d.clrText = if p.high_contrast && d.nmcd.uItemState & CDIS_SELECTED != 0 {
+                        let selected = SendMessageW(
+                            d.nmcd.hdr.hwndFrom,
+                            LVM_GETITEMSTATE,
+                            d.nmcd.dwItemSpec,
+                            LVIS_SELECTED as isize,
+                        ) & LVIS_SELECTED as isize
+                            != 0;
+                        d.clrText = if p.high_contrast && selected {
                             p.accent
                         } else {
                             p.text
                         };
-                        d.clrTextBk = if d.nmcd.uItemState & CDIS_SELECTED != 0 {
-                            p.selected
-                        } else {
-                            p.surface
-                        };
+                        d.clrTextBk = if selected { p.selected } else { p.surface };
                         return Some(CDRF_DODEFAULT as isize);
                     }
                 }
