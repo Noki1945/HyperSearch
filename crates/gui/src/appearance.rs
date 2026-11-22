@@ -92,7 +92,15 @@ impl Appearance {
         // Unsupported attributes fail harmlessly on older Windows builds.
         let dark = self.dark() as u32;
         let rounded = 2u32;
-        let backdrop = if self.transparency { 2u32 } else { 1 };
+        let backdrop = if self.transparency {
+            if unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32 & WS_POPUP != 0 {
+                3u32
+            } else {
+                2u32
+            }
+        } else {
+            1
+        };
         unsafe {
             DwmSetWindowAttribute(hwnd, 20, (&dark as *const u32).cast(), 4);
             DwmSetWindowAttribute(hwnd, 33, (&rounded as *const u32).cast(), 4);

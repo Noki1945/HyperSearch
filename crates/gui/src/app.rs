@@ -86,6 +86,7 @@ const EXPORT_EXCLUDE: usize = 159;
 const EXPORT_COMPACT: usize = 160;
 const EXPORT_HELP: usize = 161;
 enum Task {
+    Download(Arc<AtomicBool>),
     Icons(Vec<String>),
     Opened(String),
     Refresh,
@@ -107,6 +108,7 @@ enum Task {
     },
 }
 enum Event {
+    Downloaded(Result<super::windirstat_download::Package, String>),
     Icons(super::icons::Icons),
     Freshness(String, bool),
     Metadata(String, String),
@@ -147,6 +149,8 @@ struct App {
     plan_saved: bool,
     plan_root: String,
     export_cancel: Option<Arc<AtomicBool>>,
+    download_cancel: Option<Arc<AtomicBool>>,
+    closing: bool,
     icons: std::collections::HashMap<String, i32>,
     object_count: usize,
     last_search: String,
@@ -298,6 +302,18 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
     let mut cache: Option<CachedPage> = None;
     for task in rx {
         let event = match task {
+            Task::Download(cancel) => {
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    let result =
+                        super::windirstat_download::download(&cancel).map_err(|e| e.to_string());
+                    let _ = tx.send(Event::Downloaded(result));
+                    unsafe {
+                        PostMessageW(window as HWND, DONE, 0, 0);
+                    }
+                });
+                continue;
+            }
             Task::Icons(keys) => {
                 let _ = icons_tx.send(keys);
                 continue;
@@ -1072,12 +1088,22 @@ impl App {
         );
     }
     fn refresh_windirstat(&self) {
+        if self.download_cancel.is_some() {
+            set(control(self.hwnd, WDS), "Отменить загрузку");
+            return;
+        }
         if let Some(path) = super::windirstat::installed() {
             set(control(self.hwnd, WDS), "Открыть WinDirStat");
             set(control(self.hwnd, WDS_PATH), &path.to_string_lossy());
             set(
                 control(self.hwnd, WDS_LABEL),
                 "Хранилище → Анализ диска: WinDirStat найден. Путь сохранён.",
+            );
+        } else if super::windirstat_download::available() {
+            set(control(self.hwnd, WDS), "Проверить и установить");
+            set(
+                control(self.hwnd, WDS_LABEL),
+                "WinDirStat уже скачан. Повторная проверка SHA-256; перед установкой будет подтверждение.",
             );
         } else if let Some(path) = super::windirstat::downloaded() {
             set(
@@ -1353,6 +1379,64 @@ impl App {
     fn events(&mut self) {
         while let Ok(event) = self.events.try_recv() {
             match event {
+                Event::Downloaded(result) => {
+                    self.download_cancel = None;
+                    if self.closing {
+                        if self.export_cancel.is_none() {
+                            unsafe {
+                                DestroyWindow(self.hwnd);
+                            }
+                        }
+                        continue;
+                    }
+                    self.refresh_windirstat();
+                    match result {
+                        Ok(package) => {
+                            let prompt = format!(
+                                "WinDirStat {}\nОфициальный SHA-256 совпал:\n{}\n{}\n\nЗапустить установщик? Windows может запросить UAC. Автоматической установки нет.",
+                                package.version,
+                                package.sha256,
+                                if package.cached {
+                                    "Используется сохранённый пакет; повторной загрузки нет."
+                                } else {
+                                    "Пакет скачан с официального GitHub-репозитория."
+                                }
+                            );
+                            if unsafe {
+                                MessageBoxW(
+                                    self.hwnd,
+                                    wide(&prompt).as_ptr(),
+                                    wide("Установка WinDirStat").as_ptr(),
+                                    MB_YESNO | MB_ICONQUESTION,
+                                )
+                            } == IDYES
+                            {
+                                let code = unsafe {
+                                    ShellExecuteW(
+                                        self.hwnd,
+                                        wide("open").as_ptr(),
+                                        wide(&package.path.to_string_lossy()).as_ptr(),
+                                        null(),
+                                        null(),
+                                        SW_SHOWNORMAL,
+                                    )
+                                };
+                                if code as isize <= 32 {
+                                    set(
+                                        control(self.hwnd, STATUS),
+                                        "Не удалось открыть установщик. Пакет сохранён; можно повторить позже.",
+                                    );
+                                }
+                            } else {
+                                set(
+                                    control(self.hwnd, STATUS),
+                                    "Установка отменена. Проверенный пакет сохранён для повторного открытия.",
+                                );
+                            }
+                        }
+                        Err(e) => set(control(self.hwnd, STATUS), &e),
+                    }
+                }
                 Event::Icons(icons) => {
                     self.icons = icons.indices;
                     for list in [control(self.hwnd, OUTPUT), unsafe {
@@ -1405,6 +1489,14 @@ impl App {
                 ),
                 Event::ExportDone(result) => {
                     self.export_cancel = None;
+                    if self.closing {
+                        if self.download_cancel.is_none() {
+                            unsafe {
+                                DestroyWindow(self.hwnd);
+                            }
+                        }
+                        continue;
+                    }
                     match *result {
                         Ok((path, s)) => set(
                             control(self.hwnd, STATUS),
@@ -1888,6 +1980,34 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
         }
     }
     match msg {
+        WM_CLOSE => {
+            let waiting = APP.with(|a| {
+                if let Ok(mut a) = a.try_borrow_mut()
+                    && let Some(a) = a.as_mut()
+                {
+                    a.closing = true;
+                    if let Some(cancel) = &a.download_cancel {
+                        cancel.store(true, Ordering::Relaxed);
+                    }
+                    if let Some(cancel) = &a.export_cancel {
+                        cancel.store(true, Ordering::Relaxed);
+                    }
+                    return a.download_cancel.is_some() || a.export_cancel.is_some();
+                }
+                false
+            });
+            if !waiting {
+                unsafe {
+                    DestroyWindow(hwnd);
+                }
+            } else {
+                set(
+                    control(hwnd, STATUS),
+                    "Закрытие после отмены загрузки/экспорта…",
+                );
+            }
+            return 0;
+        }
         WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DWMCOMPOSITIONCHANGED => {
             let look = LOOK.with(|look| look.get());
             look.apply(hwnd);
@@ -2148,6 +2268,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                     app.events();
                     return;
                 }
+                if app.closing { return; }
                 let id = w & 0xffff;
                 let event = (w >> 16) & 0xffff;
                 match (id, event) {
@@ -2310,6 +2431,15 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         layout(hwnd, app.setup);
                     }
                     (WDS, 0) => {
+                        if let Some(cancel)=&app.download_cancel { cancel.store(true,Ordering::Relaxed); return; }
+                        if super::windirstat::installed().is_none() && (super::windirstat_download::available() || super::windirstat::downloaded().is_none()) {
+                            let cancel=Arc::new(AtomicBool::new(false));
+                            app.download_cancel=Some(cancel.clone());
+                            let _=app.tasks.send(Task::Download(cancel));
+                            set(control(hwnd,WDS),"Отменить загрузку");
+                            set(control(hwnd,STATUS),"Загрузка/проверка WinDirStat вне UI. Установщик не запустится без подтверждения.");
+                            return;
+                        }
                         let target = super::windirstat::installed()
                             .map(|p| p.to_string_lossy().into_owned())
                             .or_else(|| {
@@ -2326,7 +2456,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                                     .map(|p| p.to_string_lossy().into_owned())
                             })
                             .unwrap_or_else(|| super::windirstat::RELEASES.into());
-                        unsafe {
+                        let code=unsafe {
                             ShellExecuteW(
                                 hwnd,
                                 wide("open").as_ptr(),
@@ -2334,8 +2464,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                                 null(),
                                 null(),
                                 SW_SHOWNORMAL,
-                            );
-                        }
+                            )
+                        };
+                        if code as isize<=32 { set(control(hwnd,STATUS),"Не удалось открыть WinDirStat/пакет. Проверьте путь или официальный сайт."); }
                         app.refresh_windirstat();
                     }
                     (WDS_SITE, 0) | (WDS_UPDATE, 0) => {
@@ -2867,6 +2998,8 @@ pub fn run() {
             plan_saved: false,
             plan_root: "*".into(),
             export_cancel: None,
+            download_cancel: None,
+            closing: false,
             icons: std::collections::HashMap::new(),
             object_count: 0,
             last_search: "ещё не выполнялся".into(),
@@ -3005,6 +3138,23 @@ pub fn run() {
         );
         let look = super::appearance::Appearance::load(&index_path().with_extension("appearance"));
         LOOK.with(|value| value.set(look));
+        set(control(hwnd, THEME), &format!("Тема: {:?}", look.theme));
+        set(
+            control(hwnd, GLASS),
+            if look.transparency {
+                "Прозрачность: вкл"
+            } else {
+                "Прозрачность: выкл"
+            },
+        );
+        set(
+            control(hwnd, ANIMATIONS),
+            if look.animations {
+                "Анимации: вкл"
+            } else {
+                "Анимации: выкл"
+            },
+        );
         look.apply(settings_window);
         look.apply(hwnd);
         look.apply(popup);
@@ -3248,6 +3398,8 @@ mod tests {
                 plan_saved: false,
                 plan_root: "*".into(),
                 export_cancel: None,
+                download_cancel: None,
+                closing: false,
                 icons: std::collections::HashMap::new(),
                 object_count: 0,
                 last_search: String::new(),
@@ -3320,9 +3472,7 @@ mod tests {
             window_proc(parent, WM_NOTIFY, OUTPUT, &mut info as *mut _ as isize);
             assert_eq!(buffer[3], 0);
             assert_eq!(buffer[4], 0xffff);
-            APP.with(|cell| {
-                cell.borrow_mut().take();
-            });
+            let mut app = APP.with(|cell| cell.borrow_mut().take().unwrap());
             let second = CreateWindowExW(
                 0,
                 wide("STATIC").as_ptr(),
@@ -3351,7 +3501,42 @@ mod tests {
             register_shortcut(second, &free).unwrap();
             register_shortcut(second, "off").unwrap();
             DestroyWindow(second);
-            DestroyWindow(parent);
+            let download = Arc::new(AtomicBool::new(false));
+            let export = Arc::new(AtomicBool::new(false));
+            app.download_cancel = Some(download.clone());
+            app.export_cancel = Some(export.clone());
+            let (done, events) = mpsc::channel();
+            app.events = events;
+            APP.with(|cell| *cell.borrow_mut() = Some(app));
+            window_proc(parent, WM_CLOSE, 0, 0);
+            assert!(download.load(Ordering::Relaxed) && export.load(Ordering::Relaxed));
+            assert_ne!(
+                IsWindow(parent),
+                0,
+                "close waits for cancellation acknowledgements"
+            );
+            done.send(Event::Downloaded(Ok(
+                super::super::windirstat_download::Package {
+                    path: PathBuf::from("C:\\never-executed.msi"),
+                    version: "test".into(),
+                    sha256: "0".repeat(64),
+                    cached: true,
+                },
+            )))
+            .unwrap();
+            APP.with(|cell| cell.borrow_mut().as_mut().unwrap().events());
+            assert_ne!(
+                IsWindow(parent),
+                0,
+                "export still pending; no install confirmation on close"
+            );
+            done.send(Event::ExportDone(Box::new(Err("cancelled".into()))))
+                .unwrap();
+            APP.with(|cell| cell.borrow_mut().as_mut().unwrap().events());
+            assert_eq!(IsWindow(parent), 0);
+            APP.with(|cell| {
+                cell.borrow_mut().take();
+            });
         }
     }
 }

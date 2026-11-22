@@ -22,6 +22,7 @@ name = "hypersearch-gui"
 version = "0.2.0-beta.1"
 dependencies = [
  "hypersearch-engine",
+ "serde_json",
  "windows-sys",
 ]
 
