@@ -68,6 +68,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or("18446744073709551615")
                 .parse()?;
             options.min_bytes = option(&args, "--min-bytes").unwrap_or("0").parse()?;
+            options.priority = option(&args, "--priority").map(PathBuf::from);
             options.part_rows = option(&args, "--part-rows").unwrap_or("50000").parse()?;
             options.exclusions = option(&args, "--exclude")
                 .map(|s| s.split(';').map(PathBuf::from).collect())

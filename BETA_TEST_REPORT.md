@@ -46,3 +46,7 @@ A hidden final-GUI startup remained alive after 4 seconds, with about 510 MB pri
 ## Known gaps
 
 Actual journal wrap/recreation, disconnected volumes, power-loss recovery, long-running GUI monitoring, all hard-link names in USN mode, sorting columns, accessibility usability, arbitrary DPI/multiple monitors and a visual review of the complete window remain unverified or unimplemented. No claim of superiority to Everything is made. The beta assets are unsigned. Personal index/cache/settings files are excluded from publication; log home-directory names are redacted where applicable.
+
+## UI/UX correction validation
+
+39 local automated tests passed, including contrast, responsive geometry, native DC theme switching, bounded status diagnostics, metadata invalidation and prioritized export progress. See docs/UI_UX_FIX.md and benchmarks/0.2-ux-*.txt. The visible diagnostic ran without screenshots; physical mixed DPI, screen-reader usability and perceptual visual acceptance remain manual checks. No new release was published.

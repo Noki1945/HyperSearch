@@ -1,0 +1,8 @@
+application_ready_ms=1336.429; entries=1281006
+gui_process_metrics=Some(Metrics { peak_working_set_bytes: 489177088, peak_commit_bytes: 481951744, working_set_bytes: 489177088, private_bytes: 481943552, cpu_seconds: 1.28125 })
+query_message_to_model_ms=2.495; rows=4
+native_controls=passed; themes_applied=3; dpi=96; monitors=1; windows_visible=false; screen_capture=false
+native_geometry_checks=44; redraw_dispatch_ms=0.029; scroll_20_dispatch_ms=2.761; spotlight_open_dispatch_ms=None; background_paints=0; background_paint_total_ms=0.000; button_custom_draws=0; screen_capture=false; compositor_latency_not_measured=true
+native geometry and paint diagnostic completed; starting_idle_ms=1000
+idle_wall_seconds=1.006; process_cpu_seconds=0.000000; one_core_equivalent_percent=0.0000
+success=true; hidden idle completed; total_ms=2540.759

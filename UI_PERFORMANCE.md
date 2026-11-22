@@ -27,3 +27,7 @@ Reproduce core timings with hypersearch-cli audit --memory fast|balanced|economy
 Appearance also provides saved 90/100/110/120 percent text sizing. The information pane can be hidden with its toolbar button. Spotlight includes file types and a location button and dismisses after opening a result. RAM estimates include separate file/folder counts and explanations of each mode.
 
 Indexing settings show USN freshness, last applied update and saved absolute-path exclusions. Excluded files are removed before saving the snapshot; directory anchors remain for USN parent links but are hidden from search and inherited export scope. A directory crossing an exclusion boundary requires explicit rebuilding; polling stops with a stale-state warning. A corrupt scope file fails closed. Raw snapshot counts include structural anchors. With many exclusions, matching candidates require additional in-memory path checks; default benchmarks have no exclusions.
+
+## UI/UX correction (local working build)
+
+See [docs/UI_UX_FIX.md](docs/UI_UX_FIX.md) for the architecture comparison, corrected theme/layout/status behavior, 39-test validation, before/after measurements and manual visual acceptance checklist. No screenshot-based visual approval is claimed. Visible native paint dispatch was measured without screen capture. Full client glass is disabled to keep GDI text opaque and readable. No new release has been published.

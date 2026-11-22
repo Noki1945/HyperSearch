@@ -98,9 +98,17 @@ impl Appearance {
         };
         use windows_sys::Win32::UI::{Controls::MARGINS, WindowsAndMessaging::*};
         // Unsupported attributes fail harmlessly on older Windows builds.
-        let dark = self.dark() as u32;
+        let palette = super::theme::Palette::system_high_contrast().unwrap_or_else(|| {
+            if self.dark() {
+                super::theme::Palette::dark()
+            } else {
+                super::theme::Palette::light()
+            }
+        });
+        super::theme::select(palette);
+        let dark = (!palette.high_contrast && self.dark()) as u32;
         let rounded = 2u32;
-        let backdrop = if self.transparency {
+        let backdrop = if self.transparency && !palette.high_contrast {
             if unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32 & WS_POPUP != 0 {
                 3u32
             } else {
@@ -112,13 +120,8 @@ impl Appearance {
         unsafe {
             DwmSetWindowAttribute(hwnd, 20, (&dark as *const u32).cast(), 4);
             DwmSetWindowAttribute(hwnd, 33, (&rounded as *const u32).cast(), 4);
-            let supported =
-                DwmSetWindowAttribute(hwnd, 38, (&backdrop as *const u32).cast(), 4) >= 0;
-            let margin = if self.transparency && supported {
-                -1
-            } else {
-                0
-            };
+            DwmSetWindowAttribute(hwnd, 38, (&backdrop as *const u32).cast(), 4);
+            let margin = 0; // GDI controls always paint onto opaque client surfaces.
             let margins = MARGINS {
                 cxLeftWidth: margin,
                 cxRightWidth: margin,
@@ -127,34 +130,21 @@ impl Appearance {
             };
             DwmExtendFrameIntoClientArea(hwnd, &margins);
             let key: Vec<_> = "HyperSearch.Glass".encode_utf16().chain(Some(0)).collect();
-            SetPropW(
+            SetPropW(hwnd, key.as_ptr(), 0usize as _);
+            EnumChildWindows(hwnd, Some(super::theme::apply_child), 0);
+            let tip = GetPropW(
                 hwnd,
-                key.as_ptr(),
-                (self.transparency && supported) as usize as _,
+                "HyperSearch.Tooltips\0"
+                    .encode_utf16()
+                    .collect::<Vec<_>>()
+                    .as_ptr(),
             );
-            EnumChildWindows(hwnd, Some(theme_child), dark as isize);
+            if !tip.is_null() {
+                super::theme::apply_child(tip, 0);
+            }
             windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, std::ptr::null(), 1);
         }
     }
-}
-unsafe extern "system" fn theme_child(hwnd: HWND, dark: isize) -> i32 {
-    use windows_sys::Win32::UI::{Controls::*, WindowsAndMessaging::*};
-    let mut class = [0u16; 64];
-    unsafe {
-        let len = GetClassNameW(hwnd, class.as_mut_ptr(), 64);
-        if String::from_utf16_lossy(&class[..len as usize]) == "SysListView32" {
-            let (bg, fg) = if dark != 0 {
-                (0x00282020, 0x00f2f2f2)
-            } else {
-                (0x00faf7f4, 0x00282020)
-            };
-            SendMessageW(hwnd, LVM_SETBKCOLOR, 0, bg);
-            SendMessageW(hwnd, LVM_SETTEXTBKCOLOR, 0, bg);
-            SendMessageW(hwnd, LVM_SETTEXTCOLOR, 0, fg);
-        }
-        windows_sys::Win32::Graphics::Gdi::InvalidateRect(hwnd, std::ptr::null(), 1);
-    }
-    1
 }
 #[cfg(test)]
 mod tests {

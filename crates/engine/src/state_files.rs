@@ -60,6 +60,7 @@ pub fn exclude(volumes: &mut [Volume], snapshot: &Path) {
                 || name == format!("{stem}.preferences")
                 || name == format!("{stem}.appearance")
                 || name == format!("{stem}.indexing")
+                || name == format!("{stem}.metadata")
                 || name == format!("{stem}.pins")
                 || name == format!("{stem}.hotkey")
                 || name == format!("{stem}.opens")

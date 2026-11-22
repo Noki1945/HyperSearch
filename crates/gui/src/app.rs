@@ -24,79 +24,85 @@ use windows_sys::Win32::{
 };
 
 const DONE: u32 = WM_APP + 1;
-const ROOT: usize = 101;
-const BUILD: usize = 102;
-const LOAD: usize = 103;
-const QUERY: usize = 104;
-const MODE: usize = 105;
-const NEXT: usize = 106;
-const OUTPUT: usize = 107;
-const STATUS: usize = 108;
-const ALL: usize = 109;
-const PROFILE: usize = 110;
-const BUDGET: usize = 111;
-const ANALYZE: usize = 112;
-const APPLY: usize = 113;
-const PLAN: usize = 114;
-const SIDEBAR: usize = 115;
-const ADDRESS: usize = 116;
-const GO: usize = 117;
-const BACK: usize = 118;
-const UP: usize = 119;
-const OPEN: usize = 120;
-const LOCATION: usize = 121;
-const SETTINGS: usize = 122;
-const WDS: usize = 123;
-const WDS_PATH: usize = 124;
-const WDS_SAVE: usize = 125;
-const WDS_SITE: usize = 126;
-const WDS_UPDATE: usize = 127;
-const WDS_LABEL: usize = 128;
-const THEME: usize = 129;
-const GLASS: usize = 130;
-const EXPORT: usize = 131;
-const AI_REPORT: usize = 132;
-const CANCEL_EXPORT: usize = 133;
-const EXPORT_FORMAT: usize = 134;
-const SAFE_EXPORT: usize = 135;
-const FORWARD: usize = 136;
-const VIEW: usize = 137;
-const PIN: usize = 138;
-const SPOTLIGHT: usize = 139;
-const HOTKEY: usize = 140;
-const HOTKEY_SAVE: usize = 141;
-const HOTKEY_LABEL: usize = 142;
-const DETAILS: usize = 143;
-const COPY: usize = 144;
-const COPY_PROMPT: usize = 145;
-const SECTIONS: usize = 146;
-const ABOUT: usize = 147;
-const SEARCH_HELP: usize = 148;
-const PERF_HELP: usize = 149;
-const ANIMATIONS: usize = 150;
-const EXTENSION: usize = 151;
-const CATEGORY: usize = 152;
-const RANK: usize = 153;
-const WDS_SCOPE: usize = 154;
-const EXPORT_ROOT: usize = 155;
-const EXPORT_DEPTH: usize = 156;
-const EXPORT_MIN: usize = 157;
-const EXPORT_NEUTRAL: usize = 158;
-const EXPORT_EXCLUDE: usize = 159;
-const EXPORT_COMPACT: usize = 160;
-const EXPORT_HELP: usize = 161;
-const FONT_SIZE: usize = 162;
-const INDEX_EXCLUDE: usize = 163;
-const INDEX_APPLY: usize = 164;
-const INDEX_STATE: usize = 165;
-const SEARCH_RAM: usize = 166;
-const INFO: usize = 167;
+const MEASURE: u32 = WM_APP + 2;
+pub(super) const ROOT: usize = 101;
+pub(super) const BUILD: usize = 102;
+pub(super) const LOAD: usize = 103;
+pub(super) const QUERY: usize = 104;
+pub(super) const MODE: usize = 105;
+pub(super) const NEXT: usize = 106;
+pub(super) const OUTPUT: usize = 107;
+pub(super) const STATUS: usize = 108;
+pub(super) const ALL: usize = 109;
+pub(super) const PROFILE: usize = 110;
+pub(super) const BUDGET: usize = 111;
+pub(super) const ANALYZE: usize = 112;
+pub(super) const APPLY: usize = 113;
+pub(super) const PLAN: usize = 114;
+pub(super) const SIDEBAR: usize = 115;
+pub(super) const ADDRESS: usize = 116;
+pub(super) const GO: usize = 117;
+pub(super) const BACK: usize = 118;
+pub(super) const UP: usize = 119;
+pub(super) const OPEN: usize = 120;
+pub(super) const LOCATION: usize = 121;
+pub(super) const SETTINGS: usize = 122;
+pub(super) const WDS: usize = 123;
+pub(super) const WDS_PATH: usize = 124;
+pub(super) const WDS_SAVE: usize = 125;
+pub(super) const WDS_SITE: usize = 126;
+pub(super) const WDS_UPDATE: usize = 127;
+pub(super) const WDS_LABEL: usize = 128;
+pub(super) const THEME: usize = 129;
+pub(super) const GLASS: usize = 130;
+pub(super) const EXPORT: usize = 131;
+pub(super) const AI_REPORT: usize = 132;
+pub(super) const CANCEL_EXPORT: usize = 133;
+pub(super) const EXPORT_FORMAT: usize = 134;
+pub(super) const SAFE_EXPORT: usize = 135;
+pub(super) const FORWARD: usize = 136;
+pub(super) const VIEW: usize = 137;
+pub(super) const PIN: usize = 138;
+pub(super) const SPOTLIGHT: usize = 139;
+pub(super) const HOTKEY: usize = 140;
+pub(super) const HOTKEY_SAVE: usize = 141;
+pub(super) const HOTKEY_LABEL: usize = 142;
+pub(super) const DETAILS: usize = 143;
+pub(super) const COPY: usize = 144;
+pub(super) const COPY_PROMPT: usize = 145;
+pub(super) const SECTIONS: usize = 146;
+pub(super) const ABOUT: usize = 147;
+pub(super) const SEARCH_HELP: usize = 148;
+pub(super) const PERF_HELP: usize = 149;
+pub(super) const ANIMATIONS: usize = 150;
+pub(super) const EXTENSION: usize = 151;
+pub(super) const CATEGORY: usize = 152;
+pub(super) const RANK: usize = 153;
+pub(super) const WDS_SCOPE: usize = 154;
+pub(super) const EXPORT_ROOT: usize = 155;
+pub(super) const EXPORT_DEPTH: usize = 156;
+pub(super) const EXPORT_MIN: usize = 157;
+pub(super) const EXPORT_NEUTRAL: usize = 158;
+pub(super) const EXPORT_EXCLUDE: usize = 159;
+pub(super) const EXPORT_COMPACT: usize = 160;
+pub(super) const EXPORT_HELP: usize = 161;
+pub(super) const FONT_SIZE: usize = 162;
+pub(super) const INDEX_EXCLUDE: usize = 163;
+pub(super) const INDEX_APPLY: usize = 164;
+pub(super) const INDEX_STATE: usize = 165;
+pub(super) const SEARCH_RAM: usize = 166;
+pub(super) const INFO: usize = 167;
+pub(super) const FILTERS: usize = 168;
+pub(super) const SORT: usize = 169;
+pub(super) const EMPTY: usize = 170;
+pub(super) const EXPORT_PRIORITY: usize = 171;
 enum Task {
     Download(Arc<AtomicBool>),
     Icons(Vec<String>),
     Opened(String),
     Refresh,
     Metadata(String),
+    MetadataPage(Vec<String>),
     Export {
         options: hypersearch_engine::storage_analysis::Options,
         destination: PathBuf,
@@ -117,8 +123,9 @@ enum Event {
     Downloaded(Result<super::windirstat_download::Package, String>),
     Icons(super::icons::Icons),
     Freshness(String, bool),
-    Metadata(String, String),
-    ExportProgress(u64, u64),
+    Metadata(String, super::metadata::Record),
+    MetadataBatch(Vec<(String, super::metadata::Record)>),
+    ExportProgress(hypersearch_engine::storage_analysis::Progress),
     ExportDone(Box<Result<(PathBuf, hypersearch_engine::storage_analysis::Summary), String>>),
     Plan(Summary, String, bool, String),
     Ready {
@@ -159,6 +166,7 @@ struct App {
     download_cancel: Option<Arc<AtomicBool>>,
     closing: bool,
     icons: std::collections::HashMap<String, i32>,
+    metadata: std::collections::HashMap<String, super::metadata::Record>,
     object_count: usize,
     last_search: String,
     last_update: String,
@@ -224,7 +232,7 @@ fn index_path() -> PathBuf {
                 .join("HyperSearch/index.hsi")
         })
 }
-fn date(value: std::io::Result<std::time::SystemTime>) -> String {
+pub(super) fn date(value: std::io::Result<std::time::SystemTime>) -> String {
     let Some(seconds) = value
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
@@ -271,40 +279,40 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
     });
     let mut history =
         hypersearch_engine::query_tools::OpenHistory::load(&index_path().with_extension("opens"));
-    let (metadata_tx, metadata_rx) = mpsc::channel::<String>();
+    let (metadata_tx, metadata_rx) = mpsc::sync_channel::<Vec<String>>(16);
     let metadata_events = tx.clone();
     std::thread::spawn(move || {
-        for mut path in &metadata_rx {
-            while let Ok(newer) = metadata_rx.try_recv() {
-                path = newer;
-            }
-            let result = match std::fs::symlink_metadata(&path) {
-                Ok(m) => {
-                    use std::os::windows::fs::MetadataExt;
-                    let size = if m.is_dir() {
-                        "Папка: размер вложений — через анализ хранилища".into()
-                    } else {
-                        format!("Логический размер: {} байт", m.len())
-                    };
-                    format!(
-                        "{}\r\n{}\r\nИзменён: {}\r\nСоздан: {}\r\nАтрибуты: 0x{:X}\r\nТолько чтение: {}\r\nФизический размер: не измерен",
-                        path,
-                        size,
-                        date(m.modified()),
-                        date(m.created()),
-                        m.file_attributes(),
-                        m.permissions().readonly()
-                    )
-                }
-                Err(e) => format!("{}\r\nМетаданные недоступны: {e}", path),
+        let path = index_path().with_extension("metadata");
+        let mut cache = super::metadata::Cache::load(&path);
+        let mut saved = Instant::now();
+        for paths in &metadata_rx {
+            let single = paths.len() == 1;
+            let records: Vec<_> = paths
+                .into_iter()
+                .take(500)
+                .map(|p| {
+                    let record = cache.read(&p);
+                    (p, record)
+                })
+                .collect();
+            let event = if single {
+                let (p, r) = records.into_iter().next().unwrap();
+                Event::Metadata(p, r)
+            } else {
+                Event::MetadataBatch(records)
             };
-            if metadata_events.send(Event::Metadata(path, result)).is_err() {
+            if metadata_events.send(event).is_err() {
                 break;
             }
             unsafe {
                 PostMessageW(window as HWND, DONE, 0, 0);
             }
+            if saved.elapsed().as_secs() >= 10 {
+                let _ = cache.save(&path);
+                saved = Instant::now();
+            }
         }
+        let _ = cache.save(&path);
     });
     let mut index: Option<Arc<SearchIndex>> = None;
     let mut monitor_enabled = true;
@@ -363,8 +371,12 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                     }
                 }
             }
+            Task::MetadataPage(paths) => {
+                let _ = metadata_tx.try_send(paths);
+                continue;
+            }
             Task::Metadata(path) => {
-                let _ = metadata_tx.send(path);
+                let _ = metadata_tx.try_send(vec![path]);
                 continue;
             }
             Task::Export {
@@ -375,15 +387,15 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                 if let Some(index) = index.clone() {
                     let tx = tx.clone();
                     std::thread::spawn(move || {
-                        let mut last = Instant::now();
-                        let result = hypersearch_engine::storage_analysis::export(
+                        let mut last = Instant::now() - std::time::Duration::from_secs(1);
+                        let result = hypersearch_engine::storage_analysis::export_with_updates(
                             &index.volumes,
                             &options,
                             &destination,
                             &cancel,
-                            |n, total| {
+                            |progress| {
                                 if last.elapsed().as_millis() >= 100 {
-                                    let _ = tx.send(Event::ExportProgress(n, total));
+                                    let _ = tx.send(Event::ExportProgress(progress));
                                     unsafe {
                                         PostMessageW(window as HWND, DONE, 0, 0);
                                     }
@@ -829,6 +841,13 @@ fn register_shortcut(hwnd: HWND, value: &str) -> Result<(), String> {
     Ok(())
 }
 fn set(hwnd: HWND, text: &str) {
+    let label;
+    let text = if unsafe { GetDlgCtrlID(hwnd) } == STATUS as i32 {
+        label = super::status::record(text);
+        &label
+    } else {
+        text
+    };
     unsafe {
         SetWindowTextW(hwnd, wide(text).as_ptr());
     }
@@ -1026,7 +1045,7 @@ impl App {
         look.apply(settings);
         look.apply(palette(self.hwnd));
         if let Some(smoke) = &mut self.smoke {
-            smoke.log.push(format!("native_controls=passed; themes_applied=3; dpi={}; monitors={}; windows_visible=false; screen_capture=false",unsafe { GetDpiForWindow(self.hwnd) },unsafe { GetSystemMetrics(SM_CMONITORS) }));
+            smoke.log.push(format!("native_controls=passed; themes_applied=3; dpi={}; monitors={}; windows_visible={}; screen_capture=false",unsafe { GetDpiForWindow(self.hwnd) },unsafe { GetSystemMetrics(SM_CMONITORS) },unsafe {IsWindowVisible(self.hwnd)!=0}));
             smoke.phase = 2;
         }
         if let Some(row) = self.rows.first() {
@@ -1082,6 +1101,17 @@ impl App {
             );
             return;
         };
+        options.priority =
+            if unsafe { SendMessageW(control(self.hwnd, EXPORT_PRIORITY), BM_GETCHECK, 0, 0) }
+                == BST_CHECKED as isize
+            {
+                self.scope
+                    .as_ref()
+                    .map(PathBuf::from)
+                    .filter(|p| p.is_absolute())
+            } else {
+                None
+            };
         options.max_depth = depth;
         options.min_bytes = min;
         options.exclusions = text(control(self.hwnd, EXPORT_EXCLUDE))
@@ -1258,15 +1288,40 @@ impl App {
         }
         let descending =
             unsafe { GetPropW(list, wide("HyperSearch.SortDescending").as_ptr()) } as usize != 0;
-        self.rows.sort_by_cached_key(|r| match column {
-            2 => r.path.to_lowercase(),
-            3 => r.kind.to_lowercase(),
-            _ => r.name.to_lowercase(),
+        self.rows.sort_by(|a, b| {
+            if column == 4 || column == 5 {
+                let key = |r: &Row| {
+                    self.metadata
+                        .get(&r.path)
+                        .and_then(|m| if column == 4 { m.size } else { m.modified })
+                };
+                match (key(a), key(b)) {
+                    (Some(a), Some(b)) => {
+                        if descending {
+                            b.cmp(&a)
+                        } else {
+                            a.cmp(&b)
+                        }
+                    }
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    _ => a.name.cmp(&b.name),
+                }
+            } else {
+                let key = |r: &Row| match column {
+                    2 => r.path.to_lowercase(),
+                    3 => r.kind.to_lowercase(),
+                    _ => r.name.to_lowercase(),
+                };
+                if descending {
+                    key(b).cmp(&key(a))
+                } else {
+                    key(a).cmp(&key(b))
+                }
+            }
         });
-        if descending {
-            self.rows.reverse();
-        }
     }
+
     fn selected(&self) -> Option<Row> {
         let list = unsafe {
             if IsWindowVisible(palette(self.hwnd)) != 0 {
@@ -1389,6 +1444,12 @@ impl App {
         let _ = self.tasks.send(task);
     }
     fn busy(&mut self, message: &str) {
+        super::status::STATUS
+            .with(|s| s.borrow_mut().freshness = super::status::Freshness::Checking);
+        set(control(self.hwnd, EMPTY), message);
+        unsafe {
+            ShowWindow(control(self.hwnd, EMPTY), SW_SHOW);
+        }
         self.ready = false;
         self.next = None;
         self.rows.clear();
@@ -1552,6 +1613,13 @@ impl App {
                 }
                 Event::Freshness(status, changed) => {
                     self.fresh = changed;
+                    super::status::STATUS.with(|s| {
+                        s.borrow_mut().freshness = if changed {
+                            super::status::Freshness::Current
+                        } else {
+                            super::status::Freshness::Unverified
+                        }
+                    });
                     if changed {
                         self.last_update = date(Ok(std::time::SystemTime::now()));
                     }
@@ -1561,25 +1629,59 @@ impl App {
                         self.search(None);
                     }
                 }
+                Event::MetadataBatch(records) => {
+                    if records
+                        .iter()
+                        .any(|(_, r)| r.size.is_some() || r.modified.is_some())
+                    {
+                        unsafe {
+                            SetPropW(
+                                control(self.hwnd, OUTPUT),
+                                wide("HyperSearch.MetadataColumns").as_ptr(),
+                                1usize as _,
+                            );
+                        }
+                    }
+                    if self.metadata.len() + records.len() > 2048 {
+                        self.metadata.clear();
+                    }
+                    layout(self.hwnd, self.setup);
+                    for (path, record) in records {
+                        self.metadata.insert(path, record);
+                    }
+                    self.sort_loaded();
+                    self.render_rows();
+                }
                 Event::Metadata(path, result) => {
                     if self.smoke.as_ref().is_some_and(|s| s.phase == 2) {
-                        self.finish_smoke(
-                            true,
-                            if result.contains("Метаданные недоступны") {
-                                "asynchronous unavailable-metadata response handled"
-                            } else {
-                                "asynchronous metadata available"
-                            },
-                        );
+                        unsafe {
+                            PostMessageW(self.hwnd, MEASURE, 0, 0);
+                        }
                     }
+                    if self.metadata.len() >= 2048 {
+                        self.metadata.clear();
+                    }
+                    self.metadata.insert(path.clone(), result.clone());
                     if self.selected().is_some_and(|row| row.path == path) {
-                        set(control(self.hwnd, DETAILS), &result);
+                        set(control(self.hwnd, DETAILS), &result.text);
                     }
                 }
-                Event::ExportProgress(n, total) => set(
-                    control(self.hwnd, STATUS),
-                    &format!("Анализ метаданных: {n}/{total}. Можно отменить; поиск доступен."),
-                ),
+                Event::ExportProgress(p) => {
+                    let text = format!(
+                        "Записей снимка: {}/{} · файлов: {}; папок: {}\r\nЧастичный логический объём: {} MiB; недоступно: {}\r\nКрупнейший обработанный файл: {}\r\nАнализ не завершён; размеры каталогов пока неполные.",
+                        p.visited,
+                        p.total,
+                        p.files,
+                        p.folders,
+                        p.logical_bytes / 1048576,
+                        p.inaccessible,
+                        p.largest
+                            .map(|(path, n)| format!("{path} ({n} байт)"))
+                            .unwrap_or_default()
+                    );
+                    set(control(self.hwnd, EXPORT_HELP), &text);
+                    set(control(self.hwnd, STATUS), &text);
+                }
                 Event::ExportDone(result) => {
                     self.export_cancel = None;
                     if self.closing {
@@ -1653,6 +1755,15 @@ impl App {
                     status,
                 } => {
                     self.object_count = count;
+                    super::status::STATUS.with(|s| {
+                        let mut s = s.borrow_mut();
+                        s.count = count;
+                        s.freshness = if fresh {
+                            super::status::Freshness::Current
+                        } else {
+                            super::status::Freshness::Unverified
+                        };
+                    });
                     self.fresh = fresh;
                     self.last_update = date(Ok(std::time::SystemTime::now()));
                     self.ready = true;
@@ -1701,6 +1812,12 @@ impl App {
                     }
                 }
                 Event::Error(e) => {
+                    super::status::STATUS
+                        .with(|s| s.borrow_mut().freshness = super::status::Freshness::Unavailable);
+                    set(control(self.hwnd, EMPTY), &e);
+                    unsafe {
+                        ShowWindow(control(self.hwnd, EMPTY), SW_SHOW);
+                    }
                     self.ready = false;
                     self.status = e.clone();
                     set(control(self.hwnd, STATUS), &e);
@@ -1733,6 +1850,33 @@ impl App {
                     }
                     self.rows.extend(rows);
                     self.last_search = status.clone();
+                    super::status::STATUS.with(|s| {
+                        s.borrow_mut().last_query = status
+                            .split(':')
+                            .nth(2)
+                            .and_then(|v| v.split_whitespace().next())
+                            .and_then(|v| v.parse::<f64>().ok())
+                    });
+                    set(
+                        control(self.hwnd, EMPTY),
+                        if status.contains("нет в загруженном") {
+                            &status
+                        } else if text(control(self.hwnd, QUERY)).trim().is_empty() {
+                            "В этой папке нет объектов в сохранённом индексе"
+                        } else {
+                            "Нет совпадений. Измените запрос или фильтры."
+                        },
+                    );
+                    unsafe {
+                        ShowWindow(
+                            control(self.hwnd, EMPTY),
+                            if self.rows.is_empty() {
+                                SW_SHOW
+                            } else {
+                                SW_HIDE
+                            },
+                        );
+                    }
                     self.sort_loaded();
                     let keys: Vec<_> = self
                         .rows
@@ -1806,8 +1950,8 @@ fn layout(hwnd: HWND, setup: bool) {
         let mut r: RECT = std::mem::zeroed();
         GetClientRect(hwnd, &mut r);
         let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-        let w = (r.right * 96 / dpi).max(1000);
-        let h = (r.bottom * 96 / dpi).max(580);
+        let w = (r.right * 96 / dpi).max(600);
+        let h = (r.bottom * 96 / dpi).max(340);
         for id in [
             201, ROOT, BUILD, ALL, 203, PROFILE, 204, BUDGET, ANALYZE, APPLY, PLAN,
         ] {
@@ -1819,77 +1963,82 @@ fn layout(hwnd: HWND, setup: bool) {
             control(hwnd, DETAILS),
             if details_hidden { SW_HIDE } else { SW_SHOW },
         );
+        let main = super::layout::main(
+            w,
+            h,
+            !GetPropW(hwnd, wide("HyperSearch.Filters").as_ptr()).is_null(),
+            !GetPropW(hwnd, wide("HyperSearch.ShowDetails").as_ptr()).is_null(),
+            details_hidden,
+        );
+        for (id, r) in &main.controls {
+            MoveWindow(
+                control(hwnd, *id),
+                r.x * dpi / 96,
+                r.y * dpi / 96,
+                r.w * dpi / 96,
+                r.h * dpi / 96,
+                1,
+            );
+        }
+        ShowWindow(
+            control(hwnd, DETAILS),
+            if main.details { SW_SHOW } else { SW_HIDE },
+        );
+        for id in [CATEGORY, EXTENSION, MODE, RANK] {
+            ShowWindow(
+                control(hwnd, id),
+                if GetPropW(hwnd, wide("HyperSearch.Filters").as_ptr()).is_null() {
+                    SW_HIDE
+                } else {
+                    SW_SHOW
+                },
+            );
+        }
+        for id in [OPEN, LOCATION, COPY, PIN, GO, LOAD, 205] {
+            ShowWindow(control(hwnd, id), SW_HIDE);
+        }
+        EnableWindow(control(hwnd, INFO), (w >= 850) as i32);
+        let meta_columns = !GetPropW(
+            control(hwnd, OUTPUT),
+            wide("HyperSearch.MetadataColumns").as_ptr(),
+        )
+        .is_null();
+        if meta_columns {
+            let listw = main
+                .controls
+                .iter()
+                .find(|(id, _)| *id == OUTPUT)
+                .unwrap()
+                .1
+                .w;
+            for (i, percent) in [27, 27, 13, 13, 20].iter().enumerate() {
+                SendMessageW(
+                    control(hwnd, OUTPUT),
+                    LVM_SETCOLUMNWIDTH,
+                    i,
+                    ((listw - 24) * percent / 100 * dpi / 96) as isize,
+                );
+            }
+        } else {
+            for (column, width) in main.columns.iter().enumerate() {
+                SendMessageW(
+                    control(hwnd, OUTPUT),
+                    LVM_SETCOLUMNWIDTH,
+                    column,
+                    (*width * dpi / 96) as isize,
+                );
+            }
+        }
+        InvalidateRect(hwnd, null(), 1);
         let settings = GetPropW(hwnd, wide("HyperSearch.Settings").as_ptr());
         if !settings.is_null() {
             let smoke = !GetPropW(hwnd, wide("HyperSearch.Smoke").as_ptr()).is_null();
             ShowWindow(settings, if setup && !smoke { SW_SHOW } else { SW_HIDE });
         }
-        let list_top = 138;
         for (id, x, y, cw, ch) in [
-            (BACK, 12, 12, 34, 30),
-            (FORWARD, 50, 12, 34, 30),
-            (UP, 88, 12, 34, 30),
-            (LOAD, 128, 12, 64, 30),
-            (VIEW, 400, 54, 72, 30),
-            (PIN, 480, 54, 90, 30),
-            (SPOTLIGHT, 12, 54, 178, 30),
-            (COPY, 578, 54, 82, 30),
-            (INFO, 668, 54, 140, 30),
-            (DETAILS, w - 270, 138, 258, h - 238),
-            (CATEGORY, 204, 96, 155, 240),
-            (EXTENSION, 369, 96, 125, 30),
-            (RANK, 504, 96, 170, 30),
             (SECTIONS, 12, 54, 178, 480),
             (ABOUT, 204, 54, 770, 400),
-            (SEARCH_HELP, 204, 54, 770, 300),
             (PERF_HELP, 204, 54, 770, 300),
-            (ANIMATIONS, 204, 270, 260, 30),
-            (COPY_PROMPT, 744, 510, 240, 28),
-            (HOTKEY_LABEL, 204, 480, 550, 24),
-            (HOTKEY, 204, 510, 280, 28),
-            (HOTKEY_SAVE, 494, 510, 240, 28),
-            (ADDRESS, 204, 12, w - 554, 30),
-            (GO, w - 342, 12, 50, 30),
-            (QUERY, w - 280, 12, 268, 30),
-            (SIDEBAR, 12, 96, 178, h - 196),
-            (205, 12, 62, 178, 24),
-            (OPEN, 204, 54, 88, 30),
-            (LOCATION, 300, 54, 92, 30),
-            (SETTINGS, w - 184, 54, 172, 30),
-            (MODE, w - 364, 54, 172, 200),
-            (201, 204, 108, 76, 24),
-            (ROOT, 280, 102, w - 684, 30),
-            (BUILD, w - 390, 102, 130, 30),
-            (ALL, w - 252, 102, 122, 30),
-            (203, 204, 148, 76, 24),
-            (PROFILE, 280, 142, 220, 220),
-            (204, 514, 148, 100, 24),
-            (BUDGET, 614, 142, 72, 30),
-            (ANALYZE, 204, 182, 140, 30),
-            (APPLY, 354, 182, 230, 30),
-            (PLAN, 204, 224, w - 216, 110),
-            (WDS_LABEL, 204, 330, w - 216, 24),
-            (WDS, 204, 356, 180, 28),
-            (WDS_SITE, 394, 356, 160, 28),
-            (WDS_UPDATE, 564, 356, 190, 28),
-            (WDS_PATH, 204, 390, w - 390, 28),
-            (WDS_SAVE, w - 174, 390, 162, 28),
-            (THEME, 780, 182, 180, 28),
-            (GLASS, 780, 224, 180, 28),
-            (EXPORT, 204, 432, 160, 28),
-            (AI_REPORT, 374, 432, 160, 28),
-            (CANCEL_EXPORT, 544, 432, 100, 28),
-            (EXPORT_FORMAT, 654, 432, 115, 200),
-            (SAFE_EXPORT, 780, 432, 210, 28),
-            (
-                OUTPUT,
-                204,
-                list_top,
-                w - if details_hidden { 216 } else { 486 },
-                h - list_top - 100,
-            ),
-            (STATUS, 12, h - 88, w - 160, 80),
-            (NEXT, w - 140, h - 56, 128, 32),
         ] {
             let parent = GetParent(control(hwnd, id));
             let local_dpi = GetDpiForWindow(parent).max(96) as i32;
@@ -1903,6 +2052,26 @@ fn layout(hwnd: HWND, setup: bool) {
             );
         }
         let section = SendMessageW(control(hwnd, SECTIONS), 0x188, 0, 0);
+        if !settings.is_null() {
+            let mut rect: RECT = std::mem::zeroed();
+            GetClientRect(settings, &mut rect);
+            let d = GetDpiForWindow(settings).max(96) as i32;
+            for (bar, size, virtual_size) in [
+                (SB_HORZ, rect.right, 1020 * d / 96),
+                (SB_VERT, rect.bottom, 620 * d / 96),
+            ] {
+                let info = SCROLLINFO {
+                    cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
+                    fMask: SIF_RANGE | SIF_PAGE,
+                    nMin: 0,
+                    nMax: virtual_size,
+                    nPage: size.max(0) as u32,
+                    ..std::mem::zeroed()
+                };
+                SetScrollInfo(settings, bar, &info, 1);
+            }
+        }
+
         if !settings.is_null() {
             let mut r: RECT = std::mem::zeroed();
             GetClientRect(settings, &mut r);
@@ -1949,7 +2118,7 @@ fn layout(hwnd: HWND, setup: bool) {
                 MoveWindow(control(hwnd, id), s(x), s(y), s(width), s(height), 1);
             }
             for (id, x, y, width, height) in [
-                (EXPORT_HELP, 204, 172, sw - 230, 44),
+                (EXPORT_HELP, 204, 486, sw - 230, 100),
                 (EXPORT_ROOT, 204, 222, 420, 200),
                 (EXPORT_FORMAT, 640, 222, 140, 200),
                 (EXPORT_DEPTH, 204, 264, 72, 30),
@@ -1962,6 +2131,7 @@ fn layout(hwnd: HWND, setup: bool) {
                 (AI_REPORT, 374, 396, 160, 30),
                 (CANCEL_EXPORT, 544, 396, 100, 30),
                 (COPY_PROMPT, 204, 444, 260, 30),
+                (EXPORT_PRIORITY, 480, 444, 360, 30),
             ] {
                 MoveWindow(control(hwnd, id), s(x), s(y), s(width), s(height), 1);
             }
@@ -2016,6 +2186,7 @@ fn layout(hwnd: HWND, setup: bool) {
                     EXPORT_EXCLUDE,
                     EXPORT_COMPACT,
                     EXPORT_HELP,
+                    EXPORT_PRIORITY,
                 ],
             ),
             (4, vec![HOTKEY_LABEL, HOTKEY, HOTKEY_SAVE]),
@@ -2033,9 +2204,136 @@ fn layout(hwnd: HWND, setup: bool) {
                 );
             }
         }
+        if !settings.is_null() {
+            let offset = Offset {
+                parent: settings,
+                x: GetScrollPos(settings, SB_HORZ),
+                y: GetScrollPos(settings, SB_VERT),
+            };
+            EnumChildWindows(settings, Some(offset_child), &offset as *const _ as isize);
+        }
     }
 }
+fn measure_controls(hwnd: HWND) -> Result<String, String> {
+    unsafe {
+        let mut original: RECT = std::mem::zeroed();
+        GetWindowRect(hwnd, &mut original);
+        let mut checks = 0;
+        for (width, height) in [(800, 600), (1280, 720), (1920, 1080), (2560, 1440)] {
+            SetWindowPos(
+                hwnd,
+                std::ptr::null_mut(),
+                0,
+                0,
+                width,
+                height,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+            layout(hwnd, false);
+            let mut client: RECT = std::mem::zeroed();
+            GetClientRect(hwnd, &mut client);
+            for id in [
+                BACK, FORWARD, UP, ADDRESS, QUERY, FILTERS, SETTINGS, OUTPUT, SIDEBAR, STATUS, NEXT,
+            ] {
+                let mut r: RECT = std::mem::zeroed();
+                GetWindowRect(control(hwnd, id), &mut r);
+                MapWindowPoints(std::ptr::null_mut(), hwnd, (&mut r as *mut RECT).cast(), 2);
+                if r.left < 0 || r.top < 0 || r.right > client.right || r.bottom > client.bottom {
+                    return Err(format!("control {id} outside client at {width}x{height}"));
+                }
+                checks += 1;
+            }
+        }
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            original.left,
+            original.top,
+            original.right - original.left,
+            original.bottom - original.top,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+        let start = Instant::now();
+        RedrawWindow(
+            hwnd,
+            null(),
+            std::ptr::null_mut(),
+            RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN,
+        );
+        GdiFlush();
+        let redraw = start.elapsed().as_secs_f64() * 1000.;
+        let list = control(hwnd, OUTPUT);
+        let start = Instant::now();
+        for _ in 0..20 {
+            SendMessageW(list, LVM_SCROLL, 0, 32);
+            UpdateWindow(list);
+        }
+        let scroll = start.elapsed().as_secs_f64() * 1000.;
+        let mut spotlight = None;
+        if IsWindowVisible(hwnd) != 0 {
+            let start = Instant::now();
+            show_palette(hwnd);
+            UpdateWindow(palette(hwnd));
+            spotlight = Some(start.elapsed().as_secs_f64() * 1000.);
+            ShowWindow(palette(hwnd), SW_HIDE);
+        }
+        let (paints, paint_ms, buttons) = super::theme::paint_stats();
+        Ok(format!(
+            "native_geometry_checks={checks}; redraw_dispatch_ms={redraw:.3}; scroll_20_dispatch_ms={scroll:.3}; spotlight_open_dispatch_ms={spotlight:?}; background_paints={paints}; background_paint_total_ms={paint_ms:.3}; button_custom_draws={buttons}; screen_capture=false; compositor_latency_not_measured=true"
+        ))
+    }
+}
+struct Offset {
+    parent: HWND,
+    x: i32,
+    y: i32,
+}
+unsafe extern "system" fn offset_child(hwnd: HWND, param: isize) -> i32 {
+    unsafe {
+        let offset = &*(param as *const Offset);
+        if GetParent(hwnd) != offset.parent {
+            return 1;
+        }
+        let mut r: RECT = std::mem::zeroed();
+        GetWindowRect(hwnd, &mut r);
+        MapWindowPoints(
+            std::ptr::null_mut(),
+            GetParent(hwnd),
+            (&mut r as *mut RECT).cast(),
+            2,
+        );
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            r.left - offset.x,
+            r.top - offset.y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
+    1
+}
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+    if msg == MEASURE {
+        let result = measure_controls(hwnd);
+        APP.with(|a| {
+            if let Ok(mut a) = a.try_borrow_mut()
+                && let Some(a) = a.as_mut()
+            {
+                match result {
+                    Ok(log) => {
+                        if let Some(smoke) = &mut a.smoke {
+                            smoke.log.push(log);
+                        }
+                        a.finish_smoke(true, "native geometry and paint diagnostic completed");
+                    }
+                    Err(e) => a.finish_smoke(false, &e),
+                }
+            }
+        });
+        return 0;
+    }
     if msg == WM_DPICHANGED && l != 0 {
         let rect = unsafe { &*(l as *const RECT) };
         unsafe {
@@ -2052,6 +2350,44 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             let owner = GetWindow(hwnd, GW_OWNER);
             if !owner.is_null() {
                 SendMessageW(owner, WM_SIZE, 0, 0);
+            }
+        }
+        return 0;
+    }
+    if let Some(result) = super::theme::message(hwnd, msg, w, l) {
+        return result;
+    }
+    if msg == WM_COMMAND && w & 0xffff == SORT {
+        unsafe {
+            let menu = CreatePopupMenu();
+            for (i, label) in [
+                "Имя — загруженные страницы",
+                "Тип — загруженные страницы",
+                "Расположение — загруженные страницы",
+                "Размер — загруженные страницы",
+                "Изменён — загруженные страницы",
+                "Релевантность — загруженные страницы",
+                "Внутренний ID",
+            ]
+            .iter()
+            .enumerate()
+            {
+                AppendMenuW(menu, MF_STRING, 5001 + i, wide(label).as_ptr());
+            }
+            let mut r = std::mem::zeroed();
+            GetWindowRect(control(hwnd, SORT), &mut r);
+            let chosen = TrackPopupMenu(
+                menu,
+                TPM_RETURNCMD | TPM_LEFTALIGN,
+                r.left,
+                r.bottom,
+                0,
+                hwnd,
+                null(),
+            );
+            DestroyMenu(menu);
+            if chosen != 0 {
+                SendMessageW(hwnd, WM_COMMAND, chosen as usize, 0);
             }
         }
         return 0;
@@ -2110,7 +2446,32 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 }
                 return 0;
             }
-            WM_SIZE => return 0,
+            WM_SIZE => {
+                unsafe {
+                    SendMessageW(owner, WM_SIZE, 0, 0);
+                }
+                return 0;
+            }
+            WM_VSCROLL | WM_HSCROLL if !is_palette => {
+                unsafe {
+                    let bar = if msg == WM_VSCROLL { SB_VERT } else { SB_HORZ };
+                    let mut info: SCROLLINFO = std::mem::zeroed();
+                    info.cbSize = std::mem::size_of::<SCROLLINFO>() as u32;
+                    info.fMask = SIF_ALL;
+                    GetScrollInfo(hwnd, bar, &mut info);
+                    let next = match (w & 0xffff) as i32 {
+                        SB_LINEUP => info.nPos - 24,
+                        SB_LINEDOWN => info.nPos + 24,
+                        SB_PAGEUP => info.nPos - info.nPage as i32,
+                        SB_PAGEDOWN => info.nPos + info.nPage as i32,
+                        SB_THUMBTRACK => info.nTrackPos,
+                        _ => info.nPos,
+                    };
+                    SetScrollPos(hwnd, bar, next, 1);
+                    SendMessageW(owner, WM_SIZE, 0, 0);
+                }
+                return 0;
+            }
             WM_ACTIVATE if is_palette && w & 0xffff == WA_INACTIVE as usize => {
                 unsafe {
                     ShowWindow(hwnd, SW_HIDE);
@@ -2161,7 +2522,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             }
             return 0;
         }
-        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_DWMCOMPOSITIONCHANGED => {
+        WM_SETTINGCHANGE | WM_THEMECHANGED | WM_SYSCOLORCHANGE | WM_DWMCOMPOSITIONCHANGED => {
             let look = LOOK.with(|look| look.get());
             look.apply(hwnd);
             let settings = unsafe { GetPropW(hwnd, wide("HyperSearch.Settings").as_ptr()) };
@@ -2177,7 +2538,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 if let Some(smoke)=&mut a.smoke {
                     let wall=smoke.query.elapsed().as_secs_f64();
                     let cpu=hypersearch_engine::metrics::process().map(|m|m.cpu_seconds-smoke.idle_cpu).unwrap_or(0.);
-                    smoke.log.push(format!("hidden_idle_wall_seconds={wall:.3}; process_cpu_seconds={cpu:.6}; one_core_equivalent_percent={:.4}",cpu/wall*100.));
+                    smoke.log.push(format!("idle_wall_seconds={wall:.3}; process_cpu_seconds={cpu:.6}; one_core_equivalent_percent={:.4}",cpu/wall*100.));
                 }
                 unsafe { KillTimer(hwnd,3); }
                 a.finish_smoke(true,"hidden idle completed");
@@ -2238,44 +2599,6 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             }
             return 0;
         }
-        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN => {
-            let look = LOOK.with(|look| look.get());
-            let (bg, fg) = if look.dark() {
-                (0x00282020, 0x00f2f2f2)
-            } else {
-                (0x00faf7f4, 0x00282020)
-            };
-            unsafe {
-                SetTextColor(w as HDC, fg);
-                if msg == WM_CTLCOLORSTATIC
-                    && !GetPropW(hwnd, wide("HyperSearch.Glass").as_ptr()).is_null()
-                {
-                    SetBkMode(w as HDC, TRANSPARENT as i32);
-                    return GetStockObject(NULL_BRUSH) as isize;
-                }
-                SetBkColor(w as HDC, bg);
-                let brush = GetStockObject(DC_BRUSH);
-                SetDCBrushColor(w as HDC, bg);
-                return brush as isize;
-            }
-        }
-        WM_ERASEBKGND => {
-            let look = LOOK.with(|look| look.get());
-            let bg = if unsafe { !GetPropW(hwnd, wide("HyperSearch.Glass").as_ptr()).is_null() } {
-                0
-            } else if look.dark() {
-                0x00282020
-            } else {
-                0x00faf7f4
-            };
-            unsafe {
-                let mut rect: RECT = std::mem::zeroed();
-                GetClientRect(hwnd, &mut rect);
-                SetDCBrushColor(w as HDC, bg);
-                FillRect(w as HDC, &rect, GetStockObject(DC_BRUSH) as HBRUSH);
-            }
-            return 1;
-        }
         WM_HOTKEY => {
             APP.with(|a| {
                 if let Ok(mut a) = a.try_borrow_mut()
@@ -2302,8 +2625,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let info = unsafe { &mut *(l as *mut MINMAXINFO) };
                 let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as i32;
                 info.ptMinTrackSize = POINT {
-                    x: 1040 * dpi / 96,
-                    y: 660 * dpi / 96,
+                    x: 620 * dpi / 96,
+                    y: 340 * dpi / 96,
                 };
             }
             return 0;
@@ -2331,7 +2654,29 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                             && !info.item.pszText.is_null()
                             && info.item.cchTextMax > 0
                         {
+                            let extra;
                             let value = match info.item.iSubItem {
+                                3 => {
+                                    extra = a
+                                        .metadata
+                                        .get(&row.path)
+                                        .and_then(|m| m.size)
+                                        .map(|n| format!("{} B", n))
+                                        .unwrap_or_default();
+                                    &extra
+                                }
+                                4 => {
+                                    extra = a
+                                        .metadata
+                                        .get(&row.path)
+                                        .and_then(|m| m.modified)
+                                        .map(|n| {
+                                            date(Ok(std::time::UNIX_EPOCH
+                                                + std::time::Duration::from_secs(n)))
+                                        })
+                                        .unwrap_or_default();
+                                    &extra
+                                }
                                 1 => &row.path,
                                 2 => &row.kind,
                                 _ => &row.name,
@@ -2425,10 +2770,30 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let id = w & 0xffff;
                 let event = (w >> 16) & 0xffff;
                 match (id, event) {
+                    (FILTERS,0) => {unsafe {let key=wide("HyperSearch.Filters");if GetPropW(hwnd,key.as_ptr()).is_null(){SetPropW(hwnd,key.as_ptr(),1usize as _);}else{RemovePropW(hwnd,key.as_ptr());}}layout(hwnd,app.setup);},
+                    (STATUS,0) => {
+                        let details=super::status::STATUS.with(|s|s.borrow().details());
+                        let answer=unsafe {MessageBoxW(hwnd,wide(&details).as_ptr(),wide("Состояние индекса — подробности").as_ptr(),MB_YESNOCANCEL|MB_ICONINFORMATION)};
+                        if answer==IDYES {app.setup=true;unsafe {SendMessageW(control(hwnd,SECTIONS),0x186,2,0);}app.refresh_indexing();layout(hwnd,true);}
+                        if answer==IDNO {unsafe {MessageBoxW(hwnd,wide("Обычный запуск ищет по сохранённым именам. В параметрах → Индексация укажите доступную папку и нажмите «Перестроить». Для полного NTFS и USN можно явно запустить HyperSearch от администратора через меню Windows. Автоматического запроса UAC нет. Документация: VALIDATION.md и UI_PERFORMANCE.md рядом с EXE.").as_ptr(),wide("Разрешения NTFS / USN").as_ptr(),MB_OK|MB_ICONINFORMATION);}}
+                    },
+                    (5001..=5007,0) => {
+                        let column=match id {5002=>3,5003=>2,5004=>4,5005=>5,_=>1};
+                        unsafe {SetPropW(control(hwnd,OUTPUT),wide("HyperSearch.SortColumn").as_ptr(),column as _);SetPropW(control(hwnd,OUTPUT),wide("HyperSearch.SortDescending").as_ptr(),(id==5004||id==5005) as usize as _);}
+                        if id==5006 || id==5007 {
+                            unsafe {RemovePropW(control(hwnd,OUTPUT),wide("HyperSearch.SortColumn").as_ptr());SendMessageW(control(hwnd,RANK),BM_SETCHECK,if id==5006 {BST_CHECKED}else{BST_UNCHECKED} as usize,0);}
+                            app.search(None);
+                        } else {
+                            app.sort_loaded();app.render_rows();
+                            if id==5004 || id==5005 {let _=app.tasks.send(Task::MetadataPage(app.rows.iter().take(500).map(|r|r.path.clone()).collect()));}
+                        }
+                        set(control(hwnd,SORT),"Сорт.: страница");
+                        set(control(hwnd,STATUS),"Сортировка загруженных страниц. Для размера/даты метаданные читаются асинхронно (до 500 строк); неизвестные значения в конце. Глобальная сортировка не включена.");
+                    },
                     (INFO, 0) => {
                         unsafe {
                             let key=wide("HyperSearch.HideDetails");
-                            if GetPropW(hwnd,key.as_ptr()).is_null() { SetPropW(hwnd,key.as_ptr(),1usize as _); } else { RemovePropW(hwnd,key.as_ptr()); }
+                            if IsWindowVisible(control(hwnd,DETAILS))!=0 { SetPropW(hwnd,key.as_ptr(),1usize as _);RemovePropW(hwnd,wide("HyperSearch.ShowDetails").as_ptr()); } else { RemovePropW(hwnd,key.as_ptr());SetPropW(hwnd,wide("HyperSearch.ShowDetails").as_ptr(),1usize as _); }
                         }
                         layout(hwnd, app.setup);
                     }
@@ -2823,7 +3188,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
 }
 pub fn run() {
     unsafe {
-        let smoke = std::env::args().any(|arg| arg == "--self-test-ui");
+        let visible_diagnostic = std::env::args().any(|arg| arg == "--self-test-paint");
+        let smoke = visible_diagnostic || std::env::args().any(|arg| arg == "--self-test-ui");
         let smoke_start = Instant::now();
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let common = INITCOMMONCONTROLSEX {
@@ -2849,7 +3215,7 @@ pub fn run() {
             0,
             class.as_ptr(),
             wide("HyperSearch 0.2 beta").as_ptr(),
-            WS_OVERLAPPEDWINDOW,
+            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             1200 * initial_dpi / 96,
@@ -2862,7 +3228,7 @@ pub fn run() {
         if hwnd.is_null() {
             return;
         }
-        if smoke {
+        if smoke && !visible_diagnostic {
             SetPropW(hwnd, wide("HyperSearch.Smoke").as_ptr(), 1usize as _);
         }
         super::appearance::Appearance::load(&index_path().with_extension("appearance")).apply(hwnd);
@@ -2965,9 +3331,9 @@ pub fn run() {
         );
         child(
             hwnd,
-            "STATIC",
+            "EDIT",
             "Выберите объект для просмотра метаданных. Содержимое файла не читается.",
-            0,
+            WS_TABSTOP | WS_VSCROLL | 0x804,
             DETAILS,
         );
         child(
@@ -3179,9 +3545,15 @@ pub fn run() {
         );
         SetWindowTheme(output, wide("Explorer").as_ptr(), null());
         SetWindowTheme(sidebar_control, wide("Explorer").as_ptr(), null());
-        for (i, (title, width)) in [("Имя", 270), ("Расположение", 520), ("Тип", 130)]
-            .into_iter()
-            .enumerate()
+        for (i, (title, width)) in [
+            ("Имя", 270),
+            ("Расположение", 520),
+            ("Тип", 130),
+            ("Размер", 0),
+            ("Изменён (UTC)", 0),
+        ]
+        .into_iter()
+        .enumerate()
         {
             let mut name = wide(title);
             let column = LVCOLUMNW {
@@ -3193,7 +3565,17 @@ pub fn run() {
             };
             SendMessageW(output, LVM_INSERTCOLUMNW, i, &column as *const _ as isize);
         }
-        child(hwnd, "STATIC", "Загрузка индекса…", 0, STATUS);
+        child(hwnd, "BUTTON", "", WS_TABSTOP, STATUS);
+        child(hwnd, "STATIC", "Индекс не загружен", 1, EMPTY);
+        child(hwnd, "BUTTON", "≡", WS_TABSTOP, FILTERS);
+        child(hwnd, "BUTTON", "Сортировка", WS_TABSTOP, SORT);
+        child(
+            hwnd,
+            "BUTTON",
+            "Сначала текущая папка",
+            WS_TABSTOP | BS_AUTOCHECKBOX as u32,
+            EXPORT_PRIORITY,
+        );
         child(hwnd, "BUTTON", "Ещё 100", WS_TABSTOP, NEXT);
         let (tasks, rx) = mpsc::channel();
         let (tx, events) = mpsc::channel();
@@ -3232,6 +3614,7 @@ pub fn run() {
             download_cancel: None,
             closing: false,
             icons: std::collections::HashMap::new(),
+            metadata: std::collections::HashMap::new(),
             object_count: 0,
             last_search: "ещё не выполнялся".into(),
             last_update: "ещё не загружен".into(),
@@ -3261,15 +3644,28 @@ pub fn run() {
             app.busy("Подсчёт объёма памяти без загрузки поискового индекса…");
             let _ = app.tasks.send(Task::Analyze("*".into()));
         }
+        let mut settings_work: RECT = std::mem::zeroed();
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            (&mut settings_work as *mut RECT).cast(),
+            0,
+        );
         let settings_window = CreateWindowExW(
             WS_EX_TOOLWINDOW,
             class.as_ptr(),
             wide("HyperSearch — Параметры").as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
+            WS_OVERLAPPED
+                | WS_CAPTION
+                | WS_SYSMENU
+                | WS_THICKFRAME
+                | WS_HSCROLL
+                | WS_VSCROLL
+                | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            1040 * initial_dpi / 96,
-            620 * initial_dpi / 96,
+            (1040 * initial_dpi / 96).min(settings_work.right - settings_work.left - 24),
+            (660 * initial_dpi / 96).min(settings_work.bottom - settings_work.top - 24),
             hwnd,
             std::ptr::null_mut(),
             instance,
@@ -3322,6 +3718,7 @@ pub fn run() {
             EXPORT_EXCLUDE,
             EXPORT_COMPACT,
             EXPORT_HELP,
+            EXPORT_PRIORITY,
         ] {
             SetParent(GetDlgItem(hwnd, id as i32), settings_window);
         }
@@ -3329,7 +3726,7 @@ pub fn run() {
             WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             class.as_ptr(),
             wide("HyperSearch — Spotlight").as_ptr(),
-            WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME,
+            WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_CLIPCHILDREN,
             0,
             0,
             760,
@@ -3385,6 +3782,36 @@ pub fn run() {
             0,
             (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as isize,
         );
+        for (id, label) in [
+            (BACK, "‹"),
+            (FORWARD, "›"),
+            (UP, "↑"),
+            (SETTINGS, "⚙"),
+            (INFO, "ⓘ"),
+            (SPOTLIGHT, "Быстрый поиск"),
+            (VIEW, "Вид"),
+            (SORT, "Сорт.: страницы"),
+        ] {
+            set(control(hwnd, id), label);
+        }
+        SendMessageW(
+            control(hwnd, QUERY),
+            0x1501,
+            0,
+            wide("Поиск по имени…").as_ptr() as isize,
+        );
+        super::theme::tooltips(
+            hwnd,
+            &[
+                (control(hwnd, SETTINGS), "Настройки"),
+                (control(hwnd, FILTERS), "Показать фильтры"),
+                (control(hwnd, INFO), "Показать или скрыть сведения"),
+                (control(hwnd, STATUS), "Состояние индекса и подробности"),
+                (control(hwnd, BACK), "Назад"),
+                (control(hwnd, FORWARD), "Вперёд"),
+                (control(hwnd, UP), "На уровень вверх"),
+            ],
+        );
         let look = super::appearance::Appearance::load(&index_path().with_extension("appearance"));
         LOOK.with(|value| value.set(look));
         set(
@@ -3435,7 +3862,7 @@ pub fn run() {
         std::thread::spawn(move || worker(rx, tx, generation, window));
         SetTimer(hwnd, 1, 3000, None);
         layout(hwnd, true);
-        if !smoke {
+        if !smoke || visible_diagnostic {
             ShowWindow(hwnd, SW_SHOW);
         } else {
             SetTimer(hwnd, 2, 30000, None);
@@ -3661,6 +4088,7 @@ mod tests {
                 download_cancel: None,
                 closing: false,
                 icons: std::collections::HashMap::new(),
+                metadata: std::collections::HashMap::new(),
                 object_count: 0,
                 last_search: String::new(),
                 last_update: String::new(),

@@ -8,7 +8,15 @@ mod folders;
 #[cfg(windows)]
 mod icons;
 #[cfg(windows)]
+mod layout;
+#[cfg(windows)]
+mod metadata;
+#[cfg(windows)]
 mod settings;
+#[cfg(windows)]
+mod status;
+#[cfg(windows)]
+mod theme;
 #[cfg(windows)]
 mod view_model;
 #[cfg(windows)]

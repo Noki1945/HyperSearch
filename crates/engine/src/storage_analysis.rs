@@ -26,6 +26,7 @@ pub struct Options {
     pub min_bytes: u64,
     pub exclusions: Vec<PathBuf>,
     pub part_rows: usize,
+    pub priority: Option<PathBuf>,
 }
 impl Options {
     pub fn safe(root: PathBuf, format: Format) -> Self {
@@ -39,6 +40,7 @@ impl Options {
             min_bytes: 0,
             exclusions: vec![],
             part_rows: 50_000,
+            priority: None,
         }
     }
 }
@@ -95,6 +97,32 @@ pub struct Summary {
     pub parts: Vec<String>,
     pub method: String,
     pub privacy: String,
+}
+#[derive(Clone, Debug)]
+pub struct Progress {
+    pub visited: u64,
+    pub total: u64,
+    pub files: u64,
+    pub folders: u64,
+    pub logical_bytes: u64,
+    pub inaccessible: u64,
+    pub largest: Option<(String, u64)>,
+}
+impl Progress {
+    fn of(visited: u64, total: u64, summary: &Summary) -> Self {
+        Self {
+            visited,
+            total,
+            files: summary.totals.files,
+            folders: summary.totals.folders,
+            logical_bytes: summary.totals.logical_bytes,
+            inaccessible: summary.inaccessible,
+            largest: summary
+                .top_files
+                .first()
+                .and_then(|o| o.logical_bytes.map(|n| (o.path.clone(), n))),
+        }
+    }
 }
 pub(crate) fn normalized(p: &Path) -> String {
     p.to_string_lossy()
@@ -295,6 +323,17 @@ pub fn export(
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64, u64),
 ) -> io::Result<Summary> {
+    export_with_updates(volumes, o, destination, cancel, |p| {
+        progress(p.visited, p.total)
+    })
+}
+pub fn export_with_updates(
+    volumes: &[Volume],
+    o: &Options,
+    destination: &Path,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(Progress),
+) -> io::Result<Summary> {
     let root = o.root.canonicalize()?;
     if !root.is_dir() {
         return Err(io::Error::other("analysis root must be a directory"));
@@ -357,264 +396,288 @@ pub fn export(
     let mut folders: HashMap<PathBuf, Totals> = HashMap::new();
     let mut blocked_parents: HashMap<PathBuf, u8> = HashMap::new();
     let total = volumes.iter().map(|v| v.entries.len() as u64).sum();
+    progress(Progress::of(0, total, &summary));
     let mut visited = 0u64;
-    'volumes: for v in volumes {
-        let lookup = v.paths();
-        for e in &v.entries {
-            if cancel.load(Ordering::Relaxed) {
-                summary.cancelled = true;
-                break 'volumes;
-            }
-            visited += 1;
-            if visited.is_multiple_of(256) {
-                progress(visited, total);
-            }
-            let Some(path) = v.path(e.id, &lookup).map(PathBuf::from) else {
-                summary.inaccessible += 1;
-                continue;
-            };
-            if !inside(&path, &root) {
-                continue;
-            }
-            if exclusions.iter().any(|p| inside(&path, p)) {
-                summary.excluded += 1;
-                continue;
-            }
-            if path == destination {
-                continue;
-            }
-            let mut unsafe_parent = 0;
-            for parent in path.ancestors().skip(1) {
-                if !inside(parent, &root) {
-                    break;
+    let priority = o
+        .priority
+        .as_ref()
+        .and_then(|p| p.canonicalize().ok())
+        .filter(|p| p != &root && inside(p, &root));
+    'scan: for pass in 0..if priority.is_some() { 2 } else { 1 } {
+        for v in volumes {
+            let lookup = v.paths();
+            for e in &v.entries {
+                if cancel.load(Ordering::Relaxed) {
+                    summary.cancelled = true;
+                    break 'scan;
                 }
-                let blocked = *blocked_parents
-                    .entry(parent.to_path_buf())
-                    .or_insert_with(|| match fs::symlink_metadata(parent) {
-                        Ok(m) => {
-                            #[cfg(windows)]
-                            {
-                                use std::os::windows::fs::MetadataExt;
-                                u8::from(m.file_attributes() & 0x400 != 0)
-                            }
-                            #[cfg(not(windows))]
-                            {
-                                u8::from(m.file_type().is_symlink())
-                            }
-                        }
-                        Err(_) => 2,
-                    });
-                if blocked != 0 {
-                    unsafe_parent = blocked;
-                    break;
-                }
-            }
-            if unsafe_parent != 0 {
-                if unsafe_parent == 1 {
-                    summary.reparse_skipped += 1;
-                } else {
-                    summary.inaccessible += 1;
-                }
-                continue;
-            }
-            let depth = path
-                .components()
-                .count()
-                .saturating_sub(root.components().count());
-            let metadata = fs::symlink_metadata(&path);
-            let mut object = Object {
-                name: String::new(),
-                path: redact(&path, o),
-                parent: path.parent().map(|p| redact(p, o)).unwrap_or_default(),
-                kind: if e.directory { "directory" } else { "file" }.into(),
-                extension: if e.directory {
-                    String::new()
-                } else {
-                    Path::new(&e.name)
-                        .extension()
-                        .map(|s| s.to_string_lossy().to_lowercase())
-                        .unwrap_or_default()
-                },
-                logical_bytes: None,
-                allocated_bytes: None,
-                modified_unix_seconds: None,
-                created_unix_seconds: None,
-                depth,
-                attributes: None,
-                reparse: false,
-                warning: None,
-            };
-            object.name = if o.safe && o.neutral_names {
-                object.path.rsplit('\\').next().unwrap_or("").into()
-            } else {
-                e.name.clone()
-            };
-            let mut file_bytes = 0;
-            match metadata {
-                Ok(m) => {
-                    #[cfg(windows)]
-                    {
-                        use std::os::windows::fs::MetadataExt;
-                        object.attributes = Some(m.file_attributes());
-                        object.reparse = m.file_attributes() & 0x400 != 0;
+                let Some(path) = v.path(e.id, &lookup).map(PathBuf::from) else {
+                    if pass == 0 {
+                        summary.inaccessible += 1;
+                        visited += 1;
                     }
-                    #[cfg(not(windows))]
-                    {
-                        object.reparse = m.file_type().is_symlink();
+                    continue;
+                };
+                if let Some(priority) = &priority
+                    && inside(&path, priority) != (pass == 0)
+                {
+                    continue;
+                }
+                visited += 1;
+                if visited.is_multiple_of(256) {
+                    progress(Progress::of(visited, total, &summary));
+                }
+                if !inside(&path, &root) {
+                    continue;
+                }
+                if exclusions.iter().any(|p| inside(&path, p)) {
+                    summary.excluded += 1;
+                    continue;
+                }
+                if path == destination {
+                    continue;
+                }
+                let mut unsafe_parent = 0;
+                for parent in path.ancestors().skip(1) {
+                    if !inside(parent, &root) {
+                        break;
                     }
-                    if object.reparse {
+                    let blocked =
+                        *blocked_parents
+                            .entry(parent.to_path_buf())
+                            .or_insert_with(|| match fs::symlink_metadata(parent) {
+                                Ok(m) => {
+                                    #[cfg(windows)]
+                                    {
+                                        use std::os::windows::fs::MetadataExt;
+                                        u8::from(m.file_attributes() & 0x400 != 0)
+                                    }
+                                    #[cfg(not(windows))]
+                                    {
+                                        u8::from(m.file_type().is_symlink())
+                                    }
+                                }
+                                Err(_) => 2,
+                            });
+                    if blocked != 0 {
+                        unsafe_parent = blocked;
+                        break;
+                    }
+                }
+                if unsafe_parent != 0 {
+                    if unsafe_parent == 1 {
                         summary.reparse_skipped += 1;
-                        object.warning =
-                            Some("reparse point: target not traversed or counted".into());
-                    } else if !m.is_dir() {
-                        file_bytes = m.len();
-                        object.logical_bytes = Some(file_bytes);
+                    } else {
+                        summary.inaccessible += 1;
                     }
-                    object.modified_unix_seconds = m
-                        .modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs());
-                    object.created_unix_seconds = m
-                        .created()
-                        .ok()
-                        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs());
+                    continue;
                 }
-                Err(error) => {
-                    summary.inaccessible += 1;
-                    object.warning = Some(format!("metadata unavailable: {:?}", error.kind()));
-                }
-            }
-            if e.directory {
-                summary.totals.folders += 1;
-            } else {
-                summary.totals.files += 1;
-                summary.totals.logical_bytes =
-                    summary.totals.logical_bytes.saturating_add(file_bytes);
-                let t = summary
-                    .extensions
-                    .entry(object.extension.clone())
-                    .or_default();
-                t.files += 1;
-                t.logical_bytes = t.logical_bytes.saturating_add(file_bytes);
-                let c = summary
-                    .categories
-                    .entry(category(&object.extension).into())
-                    .or_default();
-                c.files += 1;
-                c.logical_bytes = c.logical_bytes.saturating_add(file_bytes);
-            }
-            let mut parent = if e.directory {
-                Some(path.clone())
-            } else {
-                path.parent().map(Path::to_path_buf)
-            };
-            while let Some(p) = parent {
-                if !inside(&p, &root) {
-                    break;
-                }
-                let t = folders.entry(p.clone()).or_default();
-                t.logical_bytes = t.logical_bytes.saturating_add(file_bytes);
-                if e.directory {
-                    if p != path {
-                        t.folders += 1;
-                    }
+                let depth = path
+                    .components()
+                    .count()
+                    .saturating_sub(root.components().count());
+                let metadata = fs::symlink_metadata(&path);
+                let mut object = Object {
+                    name: String::new(),
+                    path: redact(&path, o),
+                    parent: path.parent().map(|p| redact(p, o)).unwrap_or_default(),
+                    kind: if e.directory { "directory" } else { "file" }.into(),
+                    extension: if e.directory {
+                        String::new()
+                    } else {
+                        Path::new(&e.name)
+                            .extension()
+                            .map(|s| s.to_string_lossy().to_lowercase())
+                            .unwrap_or_default()
+                    },
+                    logical_bytes: None,
+                    allocated_bytes: None,
+                    modified_unix_seconds: None,
+                    created_unix_seconds: None,
+                    depth,
+                    attributes: None,
+                    reparse: false,
+                    warning: None,
+                };
+                object.name = if o.safe && o.neutral_names {
+                    object.path.rsplit('\\').next().unwrap_or("").into()
                 } else {
+                    e.name.clone()
+                };
+                let mut file_bytes = 0;
+                match metadata {
+                    Ok(m) => {
+                        #[cfg(windows)]
+                        {
+                            use std::os::windows::fs::MetadataExt;
+                            object.attributes = Some(m.file_attributes());
+                            object.reparse = m.file_attributes() & 0x400 != 0;
+                        }
+                        #[cfg(not(windows))]
+                        {
+                            object.reparse = m.file_type().is_symlink();
+                        }
+                        if object.reparse {
+                            summary.reparse_skipped += 1;
+                            object.warning =
+                                Some("reparse point: target not traversed or counted".into());
+                        } else if !m.is_dir() {
+                            file_bytes = m.len();
+                            object.logical_bytes = Some(file_bytes);
+                        }
+                        object.modified_unix_seconds = m
+                            .modified()
+                            .ok()
+                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs());
+                        object.created_unix_seconds = m
+                            .created()
+                            .ok()
+                            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                            .map(|d| d.as_secs());
+                    }
+                    Err(error) => {
+                        summary.inaccessible += 1;
+                        object.warning = Some(format!("metadata unavailable: {:?}", error.kind()));
+                    }
+                }
+                if e.directory {
+                    summary.totals.folders += 1;
+                } else {
+                    summary.totals.files += 1;
+                    summary.totals.logical_bytes =
+                        summary.totals.logical_bytes.saturating_add(file_bytes);
+                    let t = summary
+                        .extensions
+                        .entry(object.extension.clone())
+                        .or_default();
                     t.files += 1;
+                    t.logical_bytes = t.logical_bytes.saturating_add(file_bytes);
+                    let c = summary
+                        .categories
+                        .entry(category(&object.extension).into())
+                        .or_default();
+                    c.files += 1;
+                    c.logical_bytes = c.logical_bytes.saturating_add(file_bytes);
                 }
-                if normalized(&p) == normalized(&root) {
-                    break;
-                }
-                parent = p.parent().map(Path::to_path_buf);
-            }
-            if !e.directory && file_bytes > 0 && depth <= o.max_depth && file_bytes >= o.min_bytes {
-                top(&mut summary.top_files, &object);
-                if file_bytes >= 100 * 1024 * 1024 {
-                    if object
-                        .modified_unix_seconds
-                        .is_some_and(|t| now.saturating_sub(t) >= 90 * 86400)
-                    {
-                        top(&mut summary.old_large_files, &object);
+                let mut parent = if e.directory {
+                    Some(path.clone())
+                } else {
+                    path.parent().map(Path::to_path_buf)
+                };
+                while let Some(p) = parent {
+                    if !inside(&p, &root) {
+                        break;
                     }
-                    let p = normalized(&path);
-                    if caution(&path).is_none()
-                        && (p.split('\\').any(|s| s == "downloads" || s == "temp")
-                            || matches!(object.extension.as_str(), "bak" | "log" | "iso" | "msi"))
-                    {
-                        let mut candidate = object.clone();
-                        candidate.warning = Some("Review only: size, age and extension do not establish that a file is disposable.".into());
-                        top(&mut summary.review_candidates, &candidate);
+                    let t = folders.entry(p.clone()).or_default();
+                    t.logical_bytes = t.logical_bytes.saturating_add(file_bytes);
+                    if e.directory {
+                        if p != path {
+                            t.folders += 1;
+                        }
+                    } else {
+                        t.files += 1;
+                    }
+                    if normalized(&p) == normalized(&root) {
+                        break;
+                    }
+                    parent = p.parent().map(Path::to_path_buf);
+                }
+                if !e.directory
+                    && file_bytes > 0
+                    && depth <= o.max_depth
+                    && file_bytes >= o.min_bytes
+                {
+                    top(&mut summary.top_files, &object);
+                    if file_bytes >= 100 * 1024 * 1024 {
+                        if object
+                            .modified_unix_seconds
+                            .is_some_and(|t| now.saturating_sub(t) >= 90 * 86400)
+                        {
+                            top(&mut summary.old_large_files, &object);
+                        }
+                        let p = normalized(&path);
+                        if caution(&path).is_none()
+                            && (p.split('\\').any(|s| s == "downloads" || s == "temp")
+                                || matches!(
+                                    object.extension.as_str(),
+                                    "bak" | "log" | "iso" | "msi"
+                                ))
+                        {
+                            let mut candidate = object.clone();
+                            candidate.warning = Some("Review only: size, age and extension do not establish that a file is disposable.".into());
+                            top(&mut summary.review_candidates, &candidate);
+                        }
                     }
                 }
-            }
-            if o.compact || depth > o.max_depth || (!e.directory && file_bytes < o.min_bytes) {
-                summary.omitted += 1;
-                continue;
-            }
-            if o.part_rows > 0 && part_rows >= o.part_rows {
-                rotate(
-                    &mut writer,
-                    destination,
-                    o.format,
-                    false,
-                    &mut summary.parts,
-                )?;
-                part_rows = 0;
-                object_rows = 0;
-            }
-            match o.format {
-                Format::Json => {
-                    if object_rows > 0 {
-                        writer.write_all(b",")?;
-                    }
-                    serde_json::to_writer(&mut writer, &object).map_err(json_error)?;
+                if o.compact || depth > o.max_depth || (!e.directory && file_bytes < o.min_bytes) {
+                    summary.omitted += 1;
+                    continue;
                 }
-                Format::Csv => {
-                    writeln!(
+                if o.part_rows > 0 && part_rows >= o.part_rows {
+                    rotate(
+                        &mut writer,
+                        destination,
+                        o.format,
+                        false,
+                        &mut summary.parts,
+                    )?;
+                    part_rows = 0;
+                    object_rows = 0;
+                }
+                match o.format {
+                    Format::Json => {
+                        if object_rows > 0 {
+                            writer.write_all(b",")?;
+                        }
+                        serde_json::to_writer(&mut writer, &object).map_err(json_error)?;
+                    }
+                    Format::Csv => {
+                        writeln!(
+                            writer,
+                            "{},{},{},{},{},{},,{},{},{},{},{},{}",
+                            csv(&object.name),
+                            csv(&object.path),
+                            csv(&object.parent),
+                            csv(&object.kind),
+                            csv(&object.extension),
+                            object
+                                .logical_bytes
+                                .map(|n| n.to_string())
+                                .unwrap_or_default(),
+                            object
+                                .modified_unix_seconds
+                                .map(|n| n.to_string())
+                                .unwrap_or_default(),
+                            object
+                                .created_unix_seconds
+                                .map(|n| n.to_string())
+                                .unwrap_or_default(),
+                            depth,
+                            object.attributes.map(|n| n.to_string()).unwrap_or_default(),
+                            object.reparse,
+                            csv(object.warning.as_deref().unwrap_or(""))
+                        )?;
+                    }
+                    Format::Markdown => writeln!(
                         writer,
-                        "{},{},{},{},{},{},,{},{},{},{},{},{}",
-                        csv(&object.name),
-                        csv(&object.path),
-                        csv(&object.parent),
-                        csv(&object.kind),
-                        csv(&object.extension),
+                        "- `{}` — {} bytes{}",
+                        object.path.replace('`', "'"),
                         object
                             .logical_bytes
                             .map(|n| n.to_string())
-                            .unwrap_or_default(),
+                            .unwrap_or_else(|| "unknown".into()),
                         object
-                            .modified_unix_seconds
-                            .map(|n| n.to_string())
-                            .unwrap_or_default(),
-                        object
-                            .created_unix_seconds
-                            .map(|n| n.to_string())
-                            .unwrap_or_default(),
-                        depth,
-                        object.attributes.map(|n| n.to_string()).unwrap_or_default(),
-                        object.reparse,
-                        csv(object.warning.as_deref().unwrap_or(""))
-                    )?;
+                            .warning
+                            .as_ref()
+                            .map(|s| format!("; {s}"))
+                            .unwrap_or_default()
+                    )?,
                 }
-                Format::Markdown => writeln!(
-                    writer,
-                    "- `{}` — {} bytes{}",
-                    object.path.replace('`', "'"),
-                    object
-                        .logical_bytes
-                        .map(|n| n.to_string())
-                        .unwrap_or_else(|| "unknown".into()),
-                    object
-                        .warning
-                        .as_ref()
-                        .map(|s| format!("; {s}"))
-                        .unwrap_or_default()
-                )?,
+                summary.exported += 1;
+                part_rows += 1;
+                object_rows += 1;
             }
-            summary.exported += 1;
-            part_rows += 1;
-            object_rows += 1;
         }
     }
     if matches!(o.format, Format::Json) {
@@ -815,6 +878,6 @@ pub fn export(
     }
     writer.flush()?;
     writer.get_ref().sync_all()?;
-    progress(visited, total);
+    progress(Progress::of(visited, total, &summary));
     Ok(summary)
 }

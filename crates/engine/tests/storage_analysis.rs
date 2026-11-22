@@ -207,3 +207,34 @@ fn exports_sizes_privacy_formats_and_cancel() {
         std::fs::remove_dir(path).unwrap();
     }
 }
+#[test]
+fn priority_stream_is_complete_and_progress_starts_before_metadata() {
+    let dir = std::env::temp_dir().join(format!("hs-priority-{}", std::process::id()));
+    let root = dir.join("data");
+    let priority = root.join("first");
+    std::fs::create_dir_all(&priority).unwrap();
+    std::fs::write(priority.join("priority.bin"), [0; 17]).unwrap();
+    std::fs::write(root.join("other.bin"), [0; 5]).unwrap();
+    let v = filesystem::walk(&root).unwrap();
+    let mut options = Options::safe(root, Format::Json);
+    options.priority = Some(priority);
+    let mut observations = vec![];
+    let out = dir.join("report.json");
+    let summary =
+        storage_analysis::export_with_updates(&[v], &options, &out, &AtomicBool::new(false), |p| {
+            observations.push((p.visited, p.files, p.logical_bytes))
+        })
+        .unwrap();
+    assert_eq!(observations[0], (0, 0, 0));
+    assert_eq!(summary.totals.logical_bytes, 22);
+    assert_eq!(summary.totals.files, 2);
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(out).unwrap()).unwrap();
+    let objects = json["objects"].as_array().unwrap();
+    let names: Vec<_> = objects
+        .iter()
+        .filter(|o| o["kind"] == "file")
+        .map(|o| o["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["priority.bin", "other.bin"]);
+    std::fs::remove_dir_all(dir).unwrap();
+}
