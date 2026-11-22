@@ -47,10 +47,13 @@ pub fn audit(
         return Err(io::Error::other("iterations must be positive"));
     }
     let start = Instant::now();
-    let volumes = crate::storage::load(path)?;
+    let mut volumes = crate::storage::load(path)?;
+    let exclusions = crate::indexing::load(path)?;
+    crate::indexing::filter(&mut volumes, &crate::indexing::Exclusions::new(&exclusions));
     let loaded = start.elapsed().as_secs_f64() * 1000.;
     let (mut index, cache) =
         SearchIndex::with_disk_cache(volumes, mode, &crate::search::cache_path(path, mode));
+    index.set_exclusions(&exclusions);
     println!(
         "mode={}; entries={}; snapshot_load_ms={loaded:.3}; engine_ready_ms={:.3}; cache_hit={}; allocation_bytes={}; metrics={:?}",
         mode.key(),

@@ -11,6 +11,9 @@ pub struct Summary {
     pub entries: usize,
     pub searchable: usize,
     pub warnings: usize,
+    pub files: usize,
+    pub folders: usize,
+    pub unknown_types: usize,
     pub disk_bytes: u64,
     original_alloc: usize,
     lower_bytes: usize,
@@ -26,8 +29,13 @@ fn slots(n: usize) -> usize {
     }
 }
 impl Summary {
-    fn observe(&mut self, name: &str, root: bool) {
+    fn observe(&mut self, name: &str, root: bool, directory: Option<bool>) {
         self.entries += 1;
+        match directory {
+            Some(true) => self.folders += 1,
+            Some(false) => self.files += 1,
+            None => self.unknown_types += 1,
+        }
         self.original_alloc += name.len().div_ceil(16) * 16 + 16;
         if root {
             return;
@@ -103,6 +111,10 @@ impl Summary {
             "{} объектов; предупреждений: {}. Оценка RAM с запасом (не точный замер; пик загрузки выше):",
             self.entries, self.warnings
         );
+        s.push_str(&format!(
+            "\r\nФайлов: {}; папок (с корнями): {}; тип недоступен: {}.",
+            self.files, self.folders, self.unknown_types
+        ));
         for (m, label) in [
             (MemoryMode::Economy, "Экономный"),
             (MemoryMode::Balanced, "Сбалансированный"),
@@ -112,6 +124,12 @@ impl Summary {
                 "\r\n{label}: около {} МБ",
                 self.estimate_bytes(m).div_ceil(1024 * 1024)
             ));
+        }
+        s.push_str("\r\nЭкономный: минимум RAM; подстрока сканирует имена — на больших наборах ожидаются десятки/сотни мс.\r\nСбалансированный: быстрые запросы от 3 символов; короткие требуют сканирования.\r\nБыстрый: меньше ожидаемая задержка, включая 1–2 символа; больше RAM.\r\nСкорость зависит от CPU/данных; точный замер — после загрузки. Цель: до 200 мс.");
+        if self.warnings > 0 {
+            s.push_str(
+                "\r\nНеполная оценка: недоступные объекты могут увеличить фактический объём.",
+            );
         }
         if let Some((total, available)) = system_memory() {
             s.push_str(&format!(
@@ -200,8 +218,11 @@ pub fn analyze_index(path: &Path) -> io::Result<Summary> {
         for _ in 0..n {
             let id = number(&mut r)?;
             let parent = number(&mut r)?;
-            number(&mut r)?;
-            s.observe(&string(&mut r)?, id == parent);
+            let directory = number(&mut r)?;
+            if directory > 1 {
+                return Err(io::Error::other("invalid entry type"));
+            }
+            s.observe(&string(&mut r)?, id == parent, Some(directory == 1));
         }
     }
     number(&mut r)?;
@@ -213,7 +234,7 @@ pub fn analyze_roots(roots: &[String]) -> io::Result<Summary> {
     for root in roots {
         let path = PathBuf::from(root).canonicalize()?;
         let before = s.entries;
-        s.observe("", true);
+        s.observe("", true, Some(true));
         let mut stack = vec![path];
         while let Some(path) = stack.pop() {
             let dir = match std::fs::read_dir(&path) {
@@ -235,10 +256,13 @@ pub fn analyze_roots(roots: &[String]) -> io::Result<Summary> {
                     s.warnings += 1;
                     continue;
                 };
-                s.observe(&name, false);
                 let ty = match item.file_type() {
-                    Ok(t) => t,
+                    Ok(t) => {
+                        s.observe(&name, false, Some(t.is_dir()));
+                        t
+                    }
                     Err(_) => {
+                        s.observe(&name, false, None);
                         s.warnings += 1;
                         continue;
                     }

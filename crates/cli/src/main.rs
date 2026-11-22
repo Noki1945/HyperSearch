@@ -23,16 +23,19 @@ fn option<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
     args.windows(2).find(|w| w[0] == key).map(|w| w[1].as_str())
 }
 fn refresh(volumes: &mut [hypersearch_engine::Volume]) -> io::Result<()> {
-    for v in volumes {
+    let paths = hypersearch_engine::indexing::load(&data_path())?;
+    let scope = hypersearch_engine::indexing::Exclusions::new(&paths);
+    for v in volumes.iter_mut() {
         if v.journal == 0 {
             eprintln!("Snapshot only (not live): {}", v.root);
             continue;
         }
-        if let Err(e) = monitor::catch_up(v) {
+        if let Err(e) = monitor::catch_up_excluding(v, &scope) {
             eprintln!("{}: {e}; rebuilding volume", v.root);
             *v = indexer::index(&v.root, false)?;
         }
     }
+    hypersearch_engine::indexing::filter(volumes, &scope);
     Ok(())
 }
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -69,6 +72,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             options.exclusions = option(&args, "--exclude")
                 .map(|s| s.split(';').map(PathBuf::from).collect())
                 .unwrap_or_default();
+            options
+                .exclusions
+                .extend(hypersearch_engine::indexing::load(&path)?);
             println!("{}", storage_analysis::preview(&options));
             if !args.iter().any(|s| s == "--confirm") {
                 return Err("Review preview and repeat with --confirm to create the local report; nothing was exported".into());
@@ -116,6 +122,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 volumes.push(v);
             }
             hypersearch_engine::state_files::exclude(&mut volumes, &path);
+            let paths = hypersearch_engine::indexing::load(&path)?;
+            hypersearch_engine::indexing::filter(
+                &mut volumes,
+                &hypersearch_engine::indexing::Exclusions::new(&paths),
+            );
             storage::save(&path, &volumes)?;
             println!(
                 "Saved {} in {:.3}s",
@@ -169,11 +180,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 MemoryMode::parse(option(&args, "--memory").unwrap_or("fast"))
                     .ok_or("memory must be economy, balanced or fast")?
             };
-            let (index, cache) = SearchIndex::with_disk_cache(
+            let (mut index, cache) = SearchIndex::with_disk_cache(
                 volumes,
                 memory,
                 &hypersearch_engine::search::cache_path(&path, memory),
             );
+            index.set_exclusions(&hypersearch_engine::indexing::load(&path)?);
             eprintln!("{}", cache.detail);
             eprintln!(
                 "Search index ready in {:.3}s",

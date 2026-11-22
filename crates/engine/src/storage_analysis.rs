@@ -96,7 +96,7 @@ pub struct Summary {
     pub method: String,
     pub privacy: String,
 }
-fn normalized(p: &Path) -> String {
+pub(crate) fn normalized(p: &Path) -> String {
     p.to_string_lossy()
         .replace('/', "\\")
         .trim_start_matches("\\\\?\\")
@@ -108,7 +108,7 @@ fn inside(path: &Path, root: &Path) -> bool {
     let r = normalized(root);
     p == r || p.starts_with(&(r + "\\"))
 }
-fn canonical_prefix(path: &Path) -> Option<PathBuf> {
+pub(crate) fn canonical_prefix(path: &Path) -> Option<PathBuf> {
     // An exclusion must also work for stale, already-deleted indexed objects.
     for parent in path.ancestors() {
         if let Ok(base) = parent.canonicalize() {

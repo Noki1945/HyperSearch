@@ -85,6 +85,12 @@ const EXPORT_NEUTRAL: usize = 158;
 const EXPORT_EXCLUDE: usize = 159;
 const EXPORT_COMPACT: usize = 160;
 const EXPORT_HELP: usize = 161;
+const FONT_SIZE: usize = 162;
+const INDEX_EXCLUDE: usize = 163;
+const INDEX_APPLY: usize = 164;
+const INDEX_STATE: usize = 165;
+const SEARCH_RAM: usize = 166;
+const INFO: usize = 167;
 enum Task {
     Download(Arc<AtomicBool>),
     Icons(Vec<String>),
@@ -116,6 +122,7 @@ enum Event {
     ExportDone(Box<Result<(PathBuf, hypersearch_engine::storage_analysis::Summary), String>>),
     Plan(Summary, String, bool, String),
     Ready {
+        fresh: bool,
         count: usize,
         root: String,
         status: String,
@@ -154,6 +161,8 @@ struct App {
     icons: std::collections::HashMap<String, i32>,
     object_count: usize,
     last_search: String,
+    last_update: String,
+    fresh: bool,
 }
 struct Smoke {
     start: Instant,
@@ -174,6 +183,7 @@ thread_local! {static APP:RefCell<Option<App>>=const{RefCell::new(None)};}
 thread_local! {static LOOK:std::cell::Cell<super::appearance::Appearance>=std::cell::Cell::new(super::appearance::Appearance::default());}
 thread_local! {static FONTS:RefCell<std::collections::HashMap<u32,isize>>=RefCell::new(std::collections::HashMap::new());}
 fn ui_font(dpi: u32) -> usize {
+    let dpi = dpi * LOOK.with(|look| look.get().font_percent) / 100;
     FONTS.with(|fonts| {
         *fonts.borrow_mut().entry(dpi).or_insert_with(|| unsafe {
             CreateFontW(
@@ -428,6 +438,9 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                 let start = Instant::now();
                 let mut replay_unavailable = false;
                 let loaded = (|| -> Result<_, String> {
+                    let exclusions = hypersearch_engine::indexing::load(&index_path())
+                        .map_err(|e| format!("Настройки исключений: {e}"))?;
+                    let policy = hypersearch_engine::indexing::Exclusions::new(&exclusions);
                     let mut volumes=match task {
                         Task::Build(root,_)=>{
                             let roots=if root.trim()=="*"{filesystem::drives()}else{vec![root.trim().to_string()]};
@@ -440,7 +453,7 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                         if v.journal != 0 {
                             // Access denied does not prove a journal gap. Keep the persisted
                             // snapshot searchable, but explicitly mark its unverified freshness.
-                            if let Err(e) = monitor::catch_up(v) {
+                            if let Err(e) = monitor::catch_up_excluding(v, &policy) {
                                 if e.kind() == std::io::ErrorKind::PermissionDenied {
                                     replay_unavailable = true;
                                 } else {
@@ -450,11 +463,12 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                         }
                     }
                     hypersearch_engine::state_files::exclude(&mut volumes, &index_path());
+                    hypersearch_engine::indexing::filter(&mut volumes, &policy);
                     storage::save(&index_path(), &volumes).map_err(|e| e.to_string())?;
-                    Ok(volumes)
+                    Ok((volumes, exclusions))
                 })();
                 match loaded {
-                    Ok(volumes) => {
+                    Ok((volumes, exclusions)) => {
                         let root = if volumes.len() > 1 {
                             "*".into()
                         } else {
@@ -467,16 +481,18 @@ fn worker(rx: Receiver<Task>, tx: Sender<Event>, generation: Arc<AtomicU64>, win
                             .join(", ");
                         let snapshot = replay_unavailable || volumes.iter().any(|v| v.journal == 0);
                         let warnings: usize = volumes.iter().map(|v| v.warnings.len()).sum();
-                        let (built, table_cache) = SearchIndex::with_disk_cache(
+                        let (mut built, table_cache) = SearchIndex::with_disk_cache(
                             volumes,
                             memory,
                             &hypersearch_engine::search::cache_path(&index_path(), memory),
                         );
+                        built.set_exclusions(&exclusions);
                         let cache_detail = table_cache.detail;
                         let count = built.len();
                         let allocation = built.allocation_bytes().div_ceil(1024 * 1024);
                         index = Some(Arc::new(built));
                         Event::Ready {
+                            fresh: !snapshot,
                             count,
                             root,
                             status: format!(
@@ -826,6 +842,21 @@ fn text(hwnd: HWND) -> String {
     }
 }
 impl App {
+    fn refresh_indexing(&self) {
+        set(
+            control(self.hwnd, INDEX_STATE),
+            &format!(
+                "USN: {}\r\nПоследняя загрузка/применённый пакет: {}\r\n{}\r\n\r\nИсключения: абсолютные пути через ;\r\nФайлы исключаются из индекса. Каталоги-связи сохраняются, но скрыты из поиска и экспорта.\r\nПеренос папки через границу исключения требует перестроения.",
+                if self.fresh {
+                    "активен; опрос каждые 3 секунды"
+                } else {
+                    "снимок или требуется внимание; актуальность не подтверждена"
+                },
+                self.last_update,
+                self.status
+            ),
+        );
+    }
     fn refresh_performance(&self) {
         let metrics = hypersearch_engine::metrics::process();
         let snapshot = std::fs::metadata(index_path())
@@ -957,7 +988,7 @@ impl App {
         let sections = [
             (0, THEME),
             (1, SEARCH_HELP),
-            (2, PLAN),
+            (2, INDEX_STATE),
             (3, EXPORT),
             (4, HOTKEY),
             (5, PERF_HELP),
@@ -1059,6 +1090,16 @@ impl App {
             .filter(|s| !s.is_empty())
             .map(PathBuf::from)
             .collect();
+        match hypersearch_engine::indexing::load(&index_path()) {
+            Ok(paths) => options.exclusions.extend(paths),
+            Err(e) => {
+                set(
+                    control(self.hwnd, STATUS),
+                    &format!("Настройки исключений повреждены: {e}"),
+                );
+                return;
+            }
+        }
         let preview = format!(
             "{}\n\nПродолжить и выбрать файл отчёта?",
             storage_analysis::preview(&options)
@@ -1261,6 +1302,15 @@ impl App {
         let Some(row) = self.selected() else {
             return;
         };
+        if unsafe { IsWindowVisible(palette(self.hwnd)) } != 0 {
+            unsafe {
+                ShowWindow(palette(self.hwnd), SW_HIDE);
+                if location || row.directory {
+                    ShowWindow(self.hwnd, SW_SHOW);
+                    SetForegroundWindow(self.hwnd);
+                }
+            }
+        }
         if location {
             let target = if row.directory {
                 Some(row.path)
@@ -1431,14 +1481,15 @@ impl App {
                     match result {
                         Ok(package) => {
                             let prompt = format!(
-                                "WinDirStat {}\nОфициальный SHA-256 совпал:\n{}\n{}\n\nЗапустить установщик? Windows может запросить UAC. Автоматической установки нет.",
+                                "WinDirStat {} — WinDirStat-x64.msi\nИсточник: github.com/windirstat/windirstat\nОфициальный SHA-256 совпал:\n{}\n{}\nAuthenticode: {}\n\nЗапустить установщик? Windows может запросить UAC. Автоматической установки нет.",
                                 package.version,
                                 package.sha256,
                                 if package.cached {
                                     "Используется сохранённый пакет; повторной загрузки нет."
                                 } else {
                                     "Пакет скачан с официального GitHub-репозитория."
-                                }
+                                },
+                                package.signature
                             );
                             if unsafe {
                                 MessageBoxW(
@@ -1500,6 +1551,10 @@ impl App {
                     }
                 }
                 Event::Freshness(status, changed) => {
+                    self.fresh = changed;
+                    if changed {
+                        self.last_update = date(Ok(std::time::SystemTime::now()));
+                    }
                     self.status = status.clone();
                     set(control(self.hwnd, STATUS), &status);
                     if changed {
@@ -1592,15 +1647,24 @@ impl App {
                     }
                 }
                 Event::Ready {
+                    fresh,
                     count,
                     root,
                     status,
                 } => {
                     self.object_count = count;
+                    self.fresh = fresh;
+                    self.last_update = date(Ok(std::time::SystemTime::now()));
                     self.ready = true;
                     self.setup = false;
                     layout(self.hwnd, false);
                     self.status = status;
+                    if self.plan.is_none() {
+                        set(
+                            control(self.hwnd, PLAN),
+                            "Индекс загружен из сохранённых таблиц. Для прогноза другого режима нажмите «Оценить RAM», затем выберите режим и примените его.",
+                        );
+                    }
                     set(control(self.hwnd, ROOT), &root);
                     set(control(self.hwnd, STATUS), &self.status);
                     for id in [
@@ -1750,6 +1814,11 @@ fn layout(hwnd: HWND, setup: bool) {
             ShowWindow(control(hwnd, id), if setup { SW_SHOW } else { SW_HIDE });
         }
         ShowWindow(control(hwnd, 202), SW_HIDE);
+        let details_hidden = !GetPropW(hwnd, wide("HyperSearch.HideDetails").as_ptr()).is_null();
+        ShowWindow(
+            control(hwnd, DETAILS),
+            if details_hidden { SW_HIDE } else { SW_SHOW },
+        );
         let settings = GetPropW(hwnd, wide("HyperSearch.Settings").as_ptr());
         if !settings.is_null() {
             let smoke = !GetPropW(hwnd, wide("HyperSearch.Smoke").as_ptr()).is_null();
@@ -1765,6 +1834,7 @@ fn layout(hwnd: HWND, setup: bool) {
             (PIN, 480, 54, 90, 30),
             (SPOTLIGHT, 12, 54, 178, 30),
             (COPY, 578, 54, 82, 30),
+            (INFO, 668, 54, 140, 30),
             (DETAILS, w - 270, 138, 258, h - 238),
             (CATEGORY, 204, 96, 155, 240),
             (EXTENSION, 369, 96, 125, 30),
@@ -1811,7 +1881,13 @@ fn layout(hwnd: HWND, setup: bool) {
             (CANCEL_EXPORT, 544, 432, 100, 28),
             (EXPORT_FORMAT, 654, 432, 115, 200),
             (SAFE_EXPORT, 780, 432, 210, 28),
-            (OUTPUT, 204, list_top, w - 486, h - list_top - 100),
+            (
+                OUTPUT,
+                204,
+                list_top,
+                w - if details_hidden { 216 } else { 486 },
+                h - list_top - 100,
+            ),
             (STATUS, 12, h - 88, w - 160, 80),
             (NEXT, w - 140, h - 56, 128, 32),
         ] {
@@ -1847,7 +1923,13 @@ fn layout(hwnd: HWND, setup: bool) {
                 (BUDGET, 614, 94, 72, 30),
                 (ANALYZE, 204, 140, 140, 30),
                 (APPLY, 354, 140, 230, 30),
-                (PLAN, 204, 190, sw - 230, 220),
+                (PLAN, 204, 190, sw - 230, 340),
+                (FONT_SIZE, 204, 192, 260, 30),
+                (SEARCH_RAM, 600, 140, 360, 30),
+                (SEARCH_HELP, 204, 50, sw - 230, 40),
+                (INDEX_STATE, 204, 110, sw - 230, 210),
+                (INDEX_EXCLUDE, 204, 340, sw - 230, 30),
+                (INDEX_APPLY, 204, 390, 350, 32),
                 (WDS_LABEL, 204, 54, sw - 230, 30),
                 (WDS, 204, 90, 180, 30),
                 (WDS_SITE, 394, 90, 160, 30),
@@ -1885,12 +1967,31 @@ fn layout(hwnd: HWND, setup: bool) {
             }
         }
         for (page, ids) in [
-            (0, vec![THEME, GLASS, ANIMATIONS]),
-            (1, vec![SEARCH_HELP]),
+            (0, vec![THEME, GLASS, ANIMATIONS, FONT_SIZE]),
+            (
+                1,
+                vec![
+                    SEARCH_HELP,
+                    SEARCH_RAM,
+                    203,
+                    PROFILE,
+                    204,
+                    BUDGET,
+                    ANALYZE,
+                    APPLY,
+                    PLAN,
+                ],
+            ),
             (
                 2,
                 vec![
-                    201, ROOT, BUILD, ALL, 203, PROFILE, 204, BUDGET, ANALYZE, APPLY, PLAN,
+                    201,
+                    ROOT,
+                    BUILD,
+                    ALL,
+                    INDEX_STATE,
+                    INDEX_EXCLUDE,
+                    INDEX_APPLY,
                 ],
             ),
             (
@@ -1995,13 +2096,27 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         s(20),
                         s(72),
                         (r.right - s(40)).max(100),
-                        (r.bottom - s(92)).max(60),
+                        (r.bottom - s(134)).max(60),
+                        1,
+                    );
+                    MoveWindow(
+                        GetDlgItem(hwnd, LOCATION as i32),
+                        s(20),
+                        r.bottom - s(44),
+                        s(200),
+                        s(30),
                         1,
                     );
                 }
                 return 0;
             }
             WM_SIZE => return 0,
+            WM_ACTIVATE if is_palette && w & 0xffff == WA_INACTIVE as usize => {
+                unsafe {
+                    ShowWindow(hwnd, SW_HIDE);
+                }
+                return 0;
+            }
             WM_COMMAND
                 if is_palette
                     && w & 0xffff == QUERY
@@ -2310,8 +2425,31 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let id = w & 0xffff;
                 let event = (w >> 16) & 0xffff;
                 match (id, event) {
+                    (INFO, 0) => {
+                        unsafe {
+                            let key=wide("HyperSearch.HideDetails");
+                            if GetPropW(hwnd,key.as_ptr()).is_null() { SetPropW(hwnd,key.as_ptr(),1usize as _); } else { RemovePropW(hwnd,key.as_ptr()); }
+                        }
+                        layout(hwnd, app.setup);
+                    }
+                    (SEARCH_RAM,0) => { unsafe { SendMessageW(control(hwnd,SECTIONS),0x186,2,0); } layout(hwnd,true); },
+                    (FONT_SIZE,0) => {
+                        let mut look=LOOK.with(|look|look.get());
+                        look.font_percent=match look.font_percent { 90=>100,100=>110,110=>120,_=>90 };
+                        match look.save(&index_path().with_extension("appearance")) {
+                            Ok(())=>{
+                                LOOK.with(|value|value.set(look));
+                                for window in [hwnd,unsafe { GetPropW(hwnd,wide("HyperSearch.Settings").as_ptr()) },palette(hwnd)] {
+                                    unsafe { EnumChildWindows(window,Some(update_font),GetDpiForWindow(window).max(96) as isize); InvalidateRect(window,null(),1); }
+                                }
+                                set(control(hwnd,FONT_SIZE),&format!("Размер текста: {}%",look.font_percent));
+                            },
+                            Err(e)=>set(control(hwnd,STATUS),&e.to_string()),
+                        }
+                    }
                     (SECTIONS, 1) => {
                         app.refresh_performance();
+                        app.refresh_indexing();
                         layout(hwnd, true);
                     }
                     (RANK, 0) => {
@@ -2465,6 +2603,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         if app.setup {
                             app.refresh_windirstat();
                             app.refresh_performance();
+                            app.refresh_indexing();
                         }
                         layout(hwnd, app.setup);
                     }
@@ -2622,6 +2761,24 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         app.busy("Подсчёт объёма памяти без загрузки поискового индекса…");
                         let _ = app.tasks.send(Task::Analyze(root));
                     }
+                    (INDEX_APPLY, 0) => {
+                        let paths: Vec<PathBuf> = text(control(hwnd, INDEX_EXCLUDE)).split(';').map(str::trim).filter(|p| !p.is_empty()).map(PathBuf::from).collect();
+                        match hypersearch_engine::indexing::save(&index_path(), &paths) {
+                            Err(e) => set(control(hwnd, STATUS), &e.to_string()),
+                            Ok(()) => {
+                                if let Some(cancel) = &app.export_cancel { cancel.store(true, Ordering::Relaxed); }
+                                let root = text(control(hwnd, ROOT));
+                                app.busy("Сохранение исключений и перестроение индекса…");
+                                if let Some(mode) = app.choice {
+                                    let _ = app.tasks.send(Task::Build(root, mode));
+                                } else {
+                                    let _ = app.tasks.send(Task::Analyze(root));
+                                    unsafe { SendMessageW(control(hwnd,SECTIONS),0x186,1,0); }
+                                    layout(hwnd,true);
+                                }
+                            }
+                        }
+                    }
                     (APPLY, 0) => app.apply(),
                     (ALL, 0) => {
                         let Some(mode) = app.choice else {
@@ -2712,6 +2869,14 @@ pub fn run() {
         child(hwnd, "BUTTON", "Тема: System", WS_TABSTOP, THEME);
         child(hwnd, "BUTTON", "Прозрачность", WS_TABSTOP, GLASS);
         child(hwnd, "BUTTON", "Анимации: выкл", WS_TABSTOP, ANIMATIONS);
+        child(hwnd, "BUTTON", "Размер текста: 100%", WS_TABSTOP, FONT_SIZE);
+        child(
+            hwnd,
+            "BUTTON",
+            "Диски и исключения…",
+            WS_TABSTOP,
+            SEARCH_RAM,
+        );
         child(
             hwnd,
             "STATIC",
@@ -2722,7 +2887,7 @@ pub fn run() {
         child(
             hwnd,
             "STATIC",
-            "Фильтры: категория, расширения через запятую, область в адресной строке.\r\nВ запросе: ext:exe,dll type:apps in:\"C:\\Work Files\" rank:on\r\nРанжирование меняет порядок текущей страницы: точное имя, начало, начало слова, подстрока.\r\nCtrl+F — поиск; Ctrl+L — адрес; Alt+стрелки — история; Ctrl+C — пути.\r\nSpotlight: стрелка вниз, Enter, Esc. Глобальная клавиша включается отдельно.",
+            "Фильтры: ext:exe,dll type:apps in:\"C:\\Work Files\" rank:on\r\nCtrl+F — поиск; Ctrl+L — адрес; Alt+стрелки — история; Ctrl+C — пути.",
             0,
             SEARCH_HELP,
         );
@@ -2745,7 +2910,22 @@ pub fn run() {
         ] {
             SendMessageW(sections, 0x180, 0, wide(label).as_ptr() as isize);
         }
-        SendMessageW(sections, 0x186, 2, 0);
+        SendMessageW(sections, 0x186, 1, 0);
+        child(hwnd, "STATIC", "Индекс ещё не загружен", 0, INDEX_STATE);
+        let exclusions = hypersearch_engine::indexing::load(&index_path())
+            .unwrap_or_default()
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join("; ");
+        child(hwnd, "EDIT", &exclusions, WS_TABSTOP | 0x80, INDEX_EXCLUDE);
+        child(
+            hwnd,
+            "BUTTON",
+            "Сохранить и перестроить индекс",
+            WS_TABSTOP,
+            INDEX_APPLY,
+        );
         let extensions = child(hwnd, "EDIT", "", WS_TABSTOP | 0x80, EXTENSION);
         SendMessageW(extensions, 0x1501, 0, wide("exe,dll…").as_ptr() as isize);
         let categories = child(hwnd, "COMBOBOX", "", WS_TABSTOP | 3, CATEGORY);
@@ -2775,6 +2955,7 @@ pub fn run() {
         child(hwnd, "BUTTON", "Закрепить", WS_TABSTOP, PIN);
         child(hwnd, "BUTTON", "Быстрый поиск", WS_TABSTOP, SPOTLIGHT);
         child(hwnd, "BUTTON", "Копировать", WS_TABSTOP, COPY);
+        child(hwnd, "BUTTON", "Информация", WS_TABSTOP, INFO);
         child(
             hwnd,
             "BUTTON",
@@ -3053,6 +3234,8 @@ pub fn run() {
             icons: std::collections::HashMap::new(),
             object_count: 0,
             last_search: "ещё не выполнялся".into(),
+            last_update: "ещё не загружен".into(),
+            fresh: false,
         };
         app.refresh_windirstat();
         if let Some(p) = app.saved
@@ -3127,7 +3310,12 @@ pub fn run() {
             SEARCH_HELP,
             PERF_HELP,
             ANIMATIONS,
+            FONT_SIZE,
+            SEARCH_RAM,
             EXPORT_ROOT,
+            INDEX_STATE,
+            INDEX_EXCLUDE,
+            INDEX_APPLY,
             EXPORT_DEPTH,
             EXPORT_MIN,
             EXPORT_NEUTRAL,
@@ -3153,6 +3341,13 @@ pub fn run() {
         );
         SetPropW(hwnd, wide("HyperSearch.Palette").as_ptr(), popup);
         child(popup, "EDIT", "", WS_TABSTOP | 0x80, QUERY);
+        child(
+            popup,
+            "BUTTON",
+            "Открыть расположение",
+            WS_TABSTOP,
+            LOCATION,
+        );
         let popup_list = child(
             popup,
             "SysListView32",
@@ -3165,11 +3360,15 @@ pub fn run() {
                 | LVS_SHAREIMAGELISTS,
             OUTPUT,
         );
-        for (i, title) in ["Имя", "Расположение"].into_iter().enumerate() {
+        for (i, title) in ["Имя", "Расположение", "Тип"].into_iter().enumerate() {
             let mut title = wide(title);
             let column = LVCOLUMNW {
                 mask: LVCF_TEXT | LVCF_WIDTH,
-                cx: if i == 0 { 260 } else { 430 },
+                cx: match i {
+                    0 => 210,
+                    1 => 380,
+                    _ => 100,
+                },
                 pszText: title.as_mut_ptr(),
                 ..std::mem::zeroed()
             };
@@ -3188,6 +3387,17 @@ pub fn run() {
         );
         let look = super::appearance::Appearance::load(&index_path().with_extension("appearance"));
         LOOK.with(|value| value.set(look));
+        set(
+            control(hwnd, FONT_SIZE),
+            &format!("Размер текста: {}%", look.font_percent),
+        );
+        for window in [hwnd, settings_window, popup] {
+            EnumChildWindows(
+                window,
+                Some(update_font),
+                GetDpiForWindow(window).max(96) as isize,
+            );
+        }
         set(control(hwnd, THEME), &format!("Тема: {:?}", look.theme));
         set(
             control(hwnd, GLASS),
@@ -3453,6 +3663,8 @@ mod tests {
                 icons: std::collections::HashMap::new(),
                 object_count: 0,
                 last_search: String::new(),
+                last_update: String::new(),
+                fresh: false,
             };
             app.render_rows();
             assert_eq!(SendMessageW(list, LVM_GETITEMCOUNT, 0, 0), 1);
@@ -3568,6 +3780,7 @@ mod tests {
             );
             done.send(Event::Downloaded(Ok(
                 super::super::windirstat_download::Package {
+                    signature: "Valid".into(),
                     path: PathBuf::from("C:\\never-executed.msi"),
                     version: "test".into(),
                     sha256: "0".repeat(64),

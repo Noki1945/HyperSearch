@@ -12,6 +12,7 @@ pub struct Appearance {
     pub theme: Theme,
     pub transparency: bool,
     pub animations: bool,
+    pub font_percent: u32,
 }
 impl Default for Appearance {
     fn default() -> Self {
@@ -19,6 +20,7 @@ impl Default for Appearance {
             theme: Theme::System,
             transparency: true,
             animations: false,
+            font_percent: 100,
         }
     }
 }
@@ -36,6 +38,11 @@ impl Appearance {
             },
             transparency: lines.next() != Some("opaque"),
             animations: lines.next() == Some("animated"),
+            font_percent: lines
+                .next()
+                .and_then(|s| s.parse().ok())
+                .filter(|n| [90, 100, 110, 120].contains(n))
+                .unwrap_or(100),
         }
     }
     pub fn save(self, path: &Path) -> io::Result<()> {
@@ -45,14 +52,15 @@ impl Appearance {
         std::fs::write(
             path,
             format!(
-                "{}\n{}\n{}\n",
+                "{}\n{}\n{}\n{}\n",
                 match self.theme {
                     Theme::System => "system",
                     Theme::Light => "light",
                     Theme::Dark => "dark",
                 },
                 if self.transparency { "glass" } else { "opaque" },
-                if self.animations { "animated" } else { "still" }
+                if self.animations { "animated" } else { "still" },
+                self.font_percent
             ),
         )
     }
@@ -158,11 +166,13 @@ mod tests {
             theme: Theme::Dark,
             transparency: false,
             animations: false,
+            font_percent: 120,
         };
         a.save(&p).unwrap();
         let b = Appearance::load(&p);
         assert_eq!(b.theme, Theme::Dark);
         assert!(!b.transparency);
+        assert_eq!(b.font_percent, 120);
         std::fs::remove_file(p).unwrap();
     }
 }

@@ -1,6 +1,7 @@
 pub mod benchmark;
 pub mod filesystem;
 pub mod indexer;
+pub mod indexing;
 pub mod metrics;
 pub mod monitor;
 #[cfg(windows)]

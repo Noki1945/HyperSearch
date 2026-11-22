@@ -221,6 +221,7 @@ impl SearchIndex {
                 }
                 (
                     Self {
+                        exclusions: Default::default(),
                         volumes,
                         names,
                         locations,

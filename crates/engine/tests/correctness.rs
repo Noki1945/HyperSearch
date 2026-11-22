@@ -201,6 +201,7 @@ fn planning_budget_and_streamed_counts() {
     let plan = planning::analyze_index(&path).unwrap();
     assert_eq!(plan.entries, 1001);
     assert_eq!(plan.searchable, 1000);
+    assert_eq!((plan.files, plan.folders, plan.unknown_types), (1000, 1, 0));
     assert!(plan.estimate_bytes(MemoryMode::Economy) < plan.estimate_bytes(MemoryMode::Balanced));
     assert!(plan.estimate_bytes(MemoryMode::Balanced) < plan.estimate_bytes(MemoryMode::Fast));
     assert!(plan.budget_mode(1).is_err());

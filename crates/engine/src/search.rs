@@ -187,6 +187,7 @@ impl Posting {
     }
 }
 pub struct SearchIndex {
+    pub(crate) exclusions: crate::indexing::Exclusions,
     pub volumes: Vec<Volume>,
     pub(crate) names: Names,
     locations: Vec<(u32, u32)>,
@@ -236,6 +237,7 @@ impl SearchIndex {
             v.entries.shrink_to_fit();
         }
         let mut s = Self {
+            exclusions: Default::default(),
             ids_by_entry: volumes
                 .iter()
                 .map(|v| vec![None; v.entries.len()])
@@ -318,6 +320,7 @@ impl SearchIndex {
             .sum();
         let lookups: usize = self.lookups.iter().map(|m| m.capacity() * 20).sum();
         records
+            + self.exclusions.bytes()
             + lookups
             + self
                 .ids_by_entry
@@ -354,6 +357,9 @@ impl SearchIndex {
     }
     /// Direct indexed children. Returns None when the directory is not in this snapshot.
     pub fn children(&self, path: &str, after: Option<u32>, limit: usize) -> Option<Page> {
+        if self.exclusions.contains(path) {
+            return None;
+        }
         let wanted = normalized_path(path);
         let leaf = wanted.rsplit('\\').next().unwrap_or("");
         let mut parent = None;
@@ -390,6 +396,13 @@ impl SearchIndex {
             page.examined += 1;
             let e = &self.volumes[vi].entries[e as usize];
             if e.parent == parent && e.id != parent && !e.name.is_empty() {
+                if !self.exclusions.is_empty()
+                    && self
+                        .path(id as u32)
+                        .is_none_or(|p| self.exclusions.contains(&p))
+                {
+                    continue;
+                }
                 if page.ids.len() == limit {
                     page.next = page.ids.last().copied();
                     break;
@@ -492,6 +505,11 @@ impl SearchIndex {
             if !matches {
                 continue;
             }
+            if !self.exclusions.is_empty()
+                && self.path(id).is_none_or(|p| self.exclusions.contains(&p))
+            {
+                continue;
+            }
             let (v, e) = self.locations[id as usize];
             if ext.as_ref().is_some_and(|x| {
                 !n.ends_with(x) || self.volumes[v as usize].entries[e as usize].directory
@@ -517,11 +535,22 @@ impl SearchIndex {
     /// Mutates only changed names/postings. Stable IDs survive rename and deletion.
     pub fn apply_changes(&mut self, volume: usize, changes: Vec<(crate::Entry, u32)>) -> usize {
         let mut updated = 0;
-        for (entry, reason) in changes {
+        for (entry, mut reason) in changes {
             if reason & 0x1000 != 0 && reason & 0x2000 == 0 {
                 continue;
             }
             let existing = self.lookups[volume].get(&entry.id).copied();
+            if !entry.directory
+                && reason & 0x200 == 0
+                && !self.exclusions.is_empty()
+                && crate::indexing::new_path(&self.volumes[volume], &self.lookups[volume], &entry)
+                    .is_some_and(|p| self.exclusions.contains(&p))
+            {
+                if existing.is_none() {
+                    continue;
+                }
+                reason |= 0x200;
+            }
             let deleted = reason & 0x200 != 0;
             if let Some(ei) = existing
                 && !deleted
@@ -627,5 +656,36 @@ impl SearchIndex {
             }
         }
         updated
+    }
+    pub fn set_exclusions(&mut self, paths: &[std::path::PathBuf]) {
+        self.exclusions = crate::indexing::Exclusions::new(paths);
+    }
+    pub(crate) fn apply_checked(
+        &mut self,
+        volume: usize,
+        changes: Vec<(crate::Entry, u32)>,
+    ) -> std::io::Result<usize> {
+        if self.exclusions.is_empty() {
+            return Ok(self.apply_changes(volume, changes));
+        }
+        let mut count = 0;
+        for (entry, reason) in changes {
+            if reason & 0x1000 != 0 && reason & 0x2000 == 0 {
+                continue;
+            }
+            if crate::indexing::crosses(
+                &self.volumes[volume],
+                &self.lookups[volume],
+                &entry,
+                reason,
+                &self.exclusions,
+            ) {
+                return Err(std::io::Error::other(
+                    "directory crossed an indexing exclusion boundary: rebuild required",
+                ));
+            }
+            count += self.apply_changes(volume, vec![(entry, reason)]);
+        }
+        Ok(count)
     }
 }

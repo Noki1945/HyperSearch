@@ -64,6 +64,73 @@ pub fn catch_up(volume: &mut Volume) -> io::Result<()> {
         Err(io::Error::other("USN requires Windows"))
     }
 }
+/// Replay with excluded directory anchors and an incrementally maintained FRN map.
+pub fn catch_up_excluding(
+    volume: &mut Volume,
+    scope: &crate::indexing::Exclusions,
+) -> io::Result<()> {
+    if scope.is_empty() {
+        return catch_up(volume);
+    }
+    #[cfg(windows)]
+    {
+        if volume.journal == 0 {
+            return Err(io::Error::other("directory snapshot: rebuild required"));
+        }
+        let handle = crate::ntfs::VolumeHandle::open(&volume.root)?;
+        let (journal, first, target) = handle.journal()?;
+        if journal != volume.journal || volume.next_usn < first || volume.next_usn > target {
+            return Err(io::Error::other("journal gap: rebuild required"));
+        }
+        let mut lookup = volume.paths();
+        while volume.next_usn < target {
+            let (next, changes) = handle.changes(journal, volume.next_usn)?;
+            if next <= volume.next_usn {
+                return Err(io::Error::other("journal did not advance"));
+            }
+            for (entry, reason) in changes {
+                if reason & 0x10000 != 0 {
+                    return Err(io::Error::other("hard-link change: rebuild required"));
+                }
+                if reason & 0x1000 != 0 && reason & 0x2000 == 0 {
+                    continue;
+                }
+                if crate::indexing::crosses(volume, &lookup, &entry, reason, scope) {
+                    return Err(io::Error::other(
+                        "directory crossed exclusion boundary: rebuild required",
+                    ));
+                }
+                let excluded = !entry.directory
+                    && crate::indexing::new_path(volume, &lookup, &entry)
+                        .is_some_and(|p| scope.contains(&p));
+                if reason & 0x200 != 0 || excluded {
+                    if let Some(i) = lookup.remove(&entry.id) {
+                        volume.entries.swap_remove(i);
+                        if i < volume.entries.len() {
+                            lookup.insert(volume.entries[i].id, i);
+                        }
+                    }
+                } else if let Some(&i) = lookup.get(&entry.id) {
+                    volume.entries[i] = entry;
+                } else {
+                    lookup.insert(entry.id, volume.entries.len());
+                    volume.entries.push(entry);
+                }
+            }
+            volume.next_usn = next;
+        }
+        let (current, first, _) = handle.journal()?;
+        if current != journal || volume.next_usn < first {
+            return Err(io::Error::other("journal changed: rebuild required"));
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = volume;
+        Err(io::Error::other("USN requires Windows"))
+    }
+}
 
 /// One bounded journal read per volume. Uses the index's persistent FRN lookup.
 pub fn refresh(index: &mut crate::search::SearchIndex) -> io::Result<usize> {
@@ -92,7 +159,7 @@ pub fn refresh(index: &mut crate::search::SearchIndex) -> io::Result<usize> {
                     "hard-link change: rebuild with directory walk required",
                 ));
             }
-            count += index.apply_changes(vi, changes);
+            count += index.apply_checked(vi, changes)?;
             index.volumes[vi].next_usn = next;
         }
         Ok(count)

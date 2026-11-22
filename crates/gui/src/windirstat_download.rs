@@ -14,6 +14,7 @@ pub struct Package {
     pub version: String,
     pub sha256: String,
     pub cached: bool,
+    pub signature: String,
 }
 pub fn directory() -> PathBuf {
     super::windirstat::state_file().with_file_name("downloads")
@@ -31,6 +32,11 @@ New-Item -ItemType Directory -Force -Path $root | Out-Null
 $file=Join-Path $root 'WinDirStat-x64.msi'
 $record=Join-Path $root 'verified.json'
 $partial=Join-Path $root 'WinDirStat-x64.partial'
+function Check-Signature($path) {
+  $signature=Get-AuthenticodeSignature -LiteralPath $path
+  if (($signature.Status -ne 'Valid') -and ($signature.Status -ne 'NotSigned')) { throw 'Authenticode verification failed; use the official website.' }
+  return $signature.Status.ToString()
+}
 if ((Test-Path -LiteralPath $file) -and (Test-Path -LiteralPath $record)) {
   try {
     $saved=Get-Content -LiteralPath $record -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -39,6 +45,7 @@ if ((Test-Path -LiteralPath $file) -and (Test-Path -LiteralPath $record)) {
       $saved.source=$source
       $saved.path=$file
       $saved.cache_hit=$true
+      $saved | Add-Member -NotePropertyName signature -NotePropertyValue (Check-Signature $file) -Force
       $saved | ConvertTo-Json -Compress
       exit 0
     }
@@ -60,7 +67,7 @@ try {
     Move-Item -LiteralPath $partial -Destination $file -Force
     try { Set-Content -LiteralPath $file -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3`r`nHostUrl=$($url.AbsoluteUri)" } catch { }
   }
-  $result=[ordered]@{source=$source;path=$file;version=$release.tag_name;sha256=$expected;cache_hit=$cached}
+  $result=[ordered]@{source=$source;path=$file;version=$release.tag_name;sha256=$expected;cache_hit=$cached;signature=(Check-Signature $file)}
   $result | ConvertTo-Json -Compress | Set-Content -LiteralPath $record -Encoding UTF8
   $result | ConvertTo-Json -Compress
 } finally {
@@ -91,6 +98,7 @@ fn parse(text: &str, expected: &std::path::Path) -> io::Result<Package> {
         version: value["version"].as_str().unwrap_or("unknown").into(),
         sha256: sha.into(),
         cached: value["cache_hit"].as_bool().unwrap_or(false),
+        signature: value["signature"].as_str().unwrap_or("unknown").into(),
     })
 }
 pub fn download(cancel: &AtomicBool) -> io::Result<Package> {
