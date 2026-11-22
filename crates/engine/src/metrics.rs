@@ -1,6 +1,8 @@
 //! Process metrics, separate from estimated index allocations.
 #[derive(Debug)]
 pub struct Metrics {
+    pub peak_working_set_bytes: usize,
+    pub peak_commit_bytes: usize,
     pub working_set_bytes: usize,
     pub private_bytes: usize,
     pub cpu_seconds: f64,
@@ -52,6 +54,8 @@ pub fn process() -> Option<Metrics> {
         }
     }
     Some(Metrics {
+        peak_working_set_bytes: m.peak,
+        peak_commit_bytes: m.peak_commit,
         working_set_bytes: m.working,
         private_bytes: m.private,
         cpu_seconds: (k + u) as f64 / 10_000_000.,

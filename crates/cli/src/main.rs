@@ -74,6 +74,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 return Err("Review preview and repeat with --confirm to create the local report; nothing was exported".into());
             }
             let volumes = storage::load(&path)?;
+            let start = Instant::now();
+            eprintln!(
+                "export_before_metrics={:?}",
+                hypersearch_engine::metrics::process()
+            );
             let result = storage_analysis::export(
                 &volumes,
                 &options,
@@ -81,6 +86,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 &std::sync::atomic::AtomicBool::new(false),
                 |done, total| eprint!("\rMetadata: {done}/{total}"),
             )?;
+            eprintln!(
+                "export_elapsed_ms={:.3}; export_after_metrics={:?}; report_parts={}",
+                start.elapsed().as_secs_f64() * 1000.,
+                hypersearch_engine::metrics::process(),
+                result.parts.len()
+            );
             println!(
                 "\nSaved {}; files={}; logical bytes={}; unavailable={}; omitted={}",
                 out.display(),

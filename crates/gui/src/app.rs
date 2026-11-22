@@ -148,6 +148,8 @@ struct App {
     plan_root: String,
     export_cancel: Option<Arc<AtomicBool>>,
     icons: std::collections::HashMap<String, i32>,
+    object_count: usize,
+    last_search: String,
 }
 struct Smoke {
     start: Instant,
@@ -776,6 +778,34 @@ fn text(hwnd: HWND) -> String {
     }
 }
 impl App {
+    fn refresh_performance(&self) {
+        let metrics = hypersearch_engine::metrics::process();
+        let snapshot = std::fs::metadata(index_path())
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let mode = self.choice.unwrap_or(MemoryMode::Fast);
+        let cache = std::fs::metadata(hypersearch_engine::search::cache_path(&index_path(), mode))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let ram = metrics
+            .map(|m| {
+                format!(
+                    "Private: {:.1} MiB; Working set: {:.1} MiB",
+                    m.private_bytes as f64 / 1048576.,
+                    m.working_set_bytes as f64 / 1048576.
+                )
+            })
+            .unwrap_or_else(|| "недоступно".into());
+        set(
+            control(self.hwnd, PERF_HELP),
+            &format!(
+                "RAM процесса: {ram}\r\nОбъектов при загрузке: {}\r\nСнимок на диске: {snapshot} байт\r\nКэш {}: {cache} байт\r\nПоследний поиск: {}\r\n\r\nUSN проверяется каждые 3 секунды. При отказе доступа проверка прекращается до обновления. Декоративного цикла перерисовки и захвата экрана нет.",
+                self.object_count,
+                mode.key(),
+                self.last_search
+            ),
+        );
+    }
     fn finish_smoke(&mut self, success: bool, detail: &str) {
         if let Some(smoke) = &mut self.smoke {
             if success
@@ -1414,6 +1444,7 @@ impl App {
                     root,
                     status,
                 } => {
+                    self.object_count = count;
                     self.ready = true;
                     self.setup = false;
                     layout(self.hwnd, false);
@@ -1442,6 +1473,10 @@ impl App {
                         smoke.log.push(format!(
                             "application_ready_ms={:.3}; entries={count}",
                             smoke.start.elapsed().as_secs_f64() * 1000.
+                        ));
+                        smoke.log.push(format!(
+                            "gui_process_metrics={:?}",
+                            hypersearch_engine::metrics::process()
                         ));
                         smoke.phase = 1;
                         smoke.query = Instant::now();
@@ -1481,6 +1516,7 @@ impl App {
                         continue;
                     }
                     self.rows.extend(rows);
+                    self.last_search = status.clone();
                     self.sort_loaded();
                     let keys: Vec<_> = self
                         .rows
@@ -2093,7 +2129,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                 let id = w & 0xffff;
                 let event = (w >> 16) & 0xffff;
                 match (id, event) {
-                    (SECTIONS, 1) => layout(hwnd, true),
+                    (SECTIONS, 1) => {
+                        app.refresh_performance();
+                        layout(hwnd, true);
+                    }
                     (RANK, 0) => {
                         unsafe {
                             RemovePropW(
@@ -2244,6 +2283,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
                         app.setup = !app.setup;
                         if app.setup {
                             app.refresh_windirstat();
+                            app.refresh_performance();
                         }
                         layout(hwnd, app.setup);
                     }
@@ -2484,7 +2524,7 @@ pub fn run() {
         child(
             hwnd,
             "STATIC",
-            "HyperSearch 0.2\r\nНативный поиск файлов Windows / Rust\r\nИндекс хранится локально. Отчёты не отправляются в сеть.\r\nWinDirStat — отдельная программа со своей лицензией.\r\nhttps://github.com/Noki1945/HyperSearch",
+            "HyperSearch 0.2 beta\r\nНативный поиск файлов Windows / Rust\r\nИндекс хранится локально. Отчёты не отправляются в сеть.\r\nЛицензия HyperSearch: в репозитории не задана.\r\nWinDirStat — отдельная программа со своей лицензией.\r\nhttps://github.com/Noki1945/HyperSearch",
             0,
             ABOUT,
         );
@@ -2806,6 +2846,8 @@ pub fn run() {
             plan_root: "*".into(),
             export_cancel: None,
             icons: std::collections::HashMap::new(),
+            object_count: 0,
+            last_search: "ещё не выполнялся".into(),
         };
         app.refresh_windirstat();
         if let Some(p) = app.saved
@@ -3142,6 +3184,8 @@ mod tests {
                 plan_root: "*".into(),
                 export_cancel: None,
                 icons: std::collections::HashMap::new(),
+                object_count: 0,
+                last_search: String::new(),
             };
             app.render_rows();
             assert_eq!(SendMessageW(list, LVM_GETITEMCOUNT, 0, 0), 1);
