@@ -1,12 +1,14 @@
 [package]
 name = "hypersearch-gui"
-version = "0.2.0-beta.1"
+version = "0.3.0-beta.1"
 edition = "2024"
 
 [dependencies]
 hypersearch-engine = { path = "../engine" }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+windows = { version = "0.58", features = ["Foundation_Numerics", "UI_Composition", "UI_Composition_Desktop", "Graphics_Effects", "Win32_System_WinRT", "Win32_System_WinRT_Composition", "Win32_System_WinRT_Graphics_Direct2D", "Win32_System_Threading", "Win32_Graphics_Direct3D_Fxc", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Imaging", "Win32_System_Com", "Win32_Graphics_Direct3D", "System", "Win32_Graphics_Direct2D"] }
+windows-core = "0.58"
 
 [build-dependencies]
 embed-manifest = "1.5"

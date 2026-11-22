@@ -125,7 +125,10 @@ impl Appearance {
             }
             DwmSetWindowAttribute(hwnd, 33, (&rounded as *const u32).cast(), 4);
             DwmSetWindowAttribute(hwnd, 38, (&backdrop as *const u32).cast(), 4);
-            let margin = 0; // GDI controls always paint onto opaque client surfaces.
+            let margin = 0;
+            if !self.transparency || palette.high_contrast {
+                super::glass::disable(hwnd);
+            }
             let margins = MARGINS {
                 cxLeftWidth: margin,
                 cxRightWidth: margin,

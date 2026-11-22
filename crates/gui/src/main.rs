@@ -6,6 +6,12 @@ mod appearance;
 #[cfg(windows)]
 mod folders;
 #[cfg(windows)]
+#[allow(dead_code)]
+mod glass;
+#[cfg(windows)]
+#[allow(dead_code)]
+mod glass_shader;
+#[cfg(windows)]
 mod icons;
 #[cfg(windows)]
 mod layout;

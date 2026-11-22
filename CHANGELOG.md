@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-beta.1 ? 2026-11-22
+
+* Blue Explorer-inspired layout, compact native file icons and metadata preview card.
+* Live DWM host backdrop instead of reading a wallpaper image.
+* Fixed Spotlight initial layout, selection drawing, empty states and resize rendering.
+* Experimental glass: stronger custom blur, blue glass tint and nonlinear live refraction are not included yet. Final live-backdrop screen verification and mixed-DPI testing remain pending.
+
+
 ## 0.2.0-beta.1 — 2026-11-22
 
 * Native DWM glass-inspired surfaces, light/dark/system appearance, optional transparency/animation, scalable Segoe UI controls and separate seven-section settings.

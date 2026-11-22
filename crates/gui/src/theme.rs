@@ -156,6 +156,14 @@ pub unsafe extern "system" fn apply_child(hwnd: HWND, _: isize) -> i32 {
     unsafe {
         match class(hwnd).as_str() {
             "SysListView32" => {
+                if p.high_contrast || !super::app::glass_enabled() {
+                    let key = wide("HyperSearch.GlassImage");
+                    if !GetPropW(hwnd, key.as_ptr()).is_null() {
+                        let image: LVBKIMAGEW = std::mem::zeroed();
+                        SendMessageW(hwnd, LVM_SETBKIMAGEW, 0, &image as *const _ as isize);
+                        RemovePropW(hwnd, key.as_ptr());
+                    }
+                }
                 SendMessageW(hwnd, LVM_SETBKCOLOR, 0, p.surface as isize);
                 SendMessageW(hwnd, LVM_SETTEXTBKCOLOR, 0, p.surface as isize);
                 SendMessageW(hwnd, LVM_SETTEXTCOLOR, 0, p.text as isize);
@@ -261,6 +269,14 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                 } else {
                     p.window
                 };
+                if !p.high_contrast
+                    && super::app::glass_enabled()
+                    && let Some(brush) = super::glass::control_brush(hwnd, l as HWND)
+                {
+                    SetBkMode(dc, TRANSPARENT as i32);
+                    SetBrushOrgEx(dc, 0, 0, std::ptr::null_mut());
+                    return Some(brush as isize);
+                }
                 SetBkMode(dc, OPAQUE as i32);
                 SetBkColor(dc, bg);
                 SetDCBrushColor(dc, bg);
@@ -279,7 +295,10 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                 let dc = BeginPaint(hwnd, &mut ps);
                 SetDCBrushColor(dc, p.window);
                 FillRect(dc, &ps.rcPaint, GetStockObject(DC_BRUSH) as _);
-                if !p.high_contrast {
+                let glass = !p.high_contrast
+                    && super::app::glass_enabled()
+                    && super::glass::paint(hwnd, dc, p.glass);
+                if !glass && !p.high_contrast {
                     let mut full: RECT = std::mem::zeroed();
                     GetClientRect(hwnd, &mut full);
                     for band in 0..32 {
@@ -315,6 +334,9 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                     r.top -= 5;
                     r.right += 5;
                     r.bottom += 5;
+                    if glass {
+                        continue;
+                    }
                     rounded(
                         dc,
                         &r,
@@ -439,7 +461,18 @@ pub fn message(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                         } else {
                             p.text
                         };
-                        d.clrTextBk = if selected { p.selected } else { p.surface };
+                        let glass_image =
+                            !GetPropW(d.nmcd.hdr.hwndFrom, wide("HyperSearch.GlassImage").as_ptr())
+                                .is_null()
+                                && super::app::glass_enabled()
+                                && !p.high_contrast;
+                        d.clrTextBk = if !selected && glass_image {
+                            0xffffffff
+                        } else if selected {
+                            p.selected
+                        } else {
+                            p.surface
+                        };
                         return Some(CDRF_DODEFAULT as isize);
                     }
                 }

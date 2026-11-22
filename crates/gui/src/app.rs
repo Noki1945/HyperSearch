@@ -193,6 +193,9 @@ struct CachedPage {
 thread_local! {static APP:RefCell<Option<App>>=const{RefCell::new(None)};}
 thread_local! {static LOOK:std::cell::Cell<super::appearance::Appearance>=std::cell::Cell::new(super::appearance::Appearance::default());}
 thread_local! {static FONTS:RefCell<std::collections::HashMap<u32,isize>>=RefCell::new(std::collections::HashMap::new());}
+pub(super) fn glass_enabled() -> bool {
+    LOOK.with(|look| look.get().transparency)
+}
 fn ui_font(dpi: u32) -> usize {
     let dpi = dpi * LOOK.with(|look| look.get().font_percent) / 100;
     FONTS.with(|fonts| {
@@ -1820,7 +1823,7 @@ impl App {
                     }
                     set(
                         self.hwnd,
-                        &format!("HyperSearch 0.2 beta — {count} объектов"),
+                        &format!("HyperSearch 0.3 beta — {count} объектов"),
                     );
                     set(
                         control(self.hwnd, ADDRESS),
@@ -2410,6 +2413,16 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM
             }
         });
         return 0;
+    }
+    if msg == WM_MOVE {
+        unsafe {
+            RedrawWindow(
+                hwnd,
+                null(),
+                std::ptr::null_mut(),
+                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN,
+            );
+        }
     }
     if msg == WM_DPICHANGED && l != 0 {
         let rect = unsafe { &*(l as *const RECT) };
@@ -3292,7 +3305,7 @@ pub fn run() {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            wide("HyperSearch 0.2 beta").as_ptr(),
+            wide("HyperSearch 0.3 beta").as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -3324,7 +3337,7 @@ pub fn run() {
         child(
             hwnd,
             "STATIC",
-            "HyperSearch 0.2 beta\r\nНативный поиск файлов Windows / Rust\r\nИндекс хранится локально. Отчёты не отправляются в сеть.\r\nЛицензия HyperSearch: в репозитории не задана.\r\nWinDirStat — отдельная программа со своей лицензией.\r\nhttps://github.com/Noki1945/HyperSearch",
+            "HyperSearch 0.3 beta\r\nНативный поиск файлов Windows / Rust\r\nИндекс хранится локально. Отчёты не отправляются в сеть.\r\nЛицензия HyperSearch: в репозитории не задана.\r\nWinDirStat — отдельная программа со своей лицензией.\r\nhttps://github.com/Noki1945/HyperSearch",
             0,
             ABOUT,
         );
